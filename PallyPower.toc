@@ -1,0 +1,13 @@
+﻿## Interface: 30300
+## Title: PallyPower Ascended
+## Notes: Buff assignment and tracking (Ascension-ready)
+## Author: Original PallyPower authors, CorpseCuddler
+## Version: 1.0.0
+## SavedVariables: PallyPower_Assignments, PallyPower_NormalAssignments
+## OptionalDeps: Ace2
+
+embeds.xml
+PallyPower.lua
+PallyPowerValues.lua
+PallyPowerOptions.lua
+PallyPower.xml
