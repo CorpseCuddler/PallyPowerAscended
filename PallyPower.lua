@@ -47,7 +47,7 @@ end
 
 
 -- ============================================================================
--- Stage C: Buff Registry Activation
+-- Buff Registry Activation
 -- ============================================================================
 
 PP.BuffFamilies = {
@@ -115,7 +115,7 @@ function PP:CanAssignBuff(buffName)
 end
 
 -- ============================================================================
--- Stage D: Generic Buff Casting
+-- Generic Buff Casting
 -- ============================================================================
 
 function PP:GetBuffSpell(buffName, isGroup)
@@ -154,7 +154,7 @@ end
 PP.Assignments = PP.Assignments or {}
 
 -- ============================================================================
--- Stage E: Buff Duration Tracking (Client-side only)
+-- Buff Duration Tracking (Client-side only)
 -- ============================================================================
 
 PP.ActiveBuffs = {}
@@ -3375,4 +3375,3 @@ function PallyPower:AutoAssignAuras(precedence)
 		end		
 	end
 end
-
