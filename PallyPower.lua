@@ -1203,18 +1203,18 @@ function PallyPower:GetBlessingIcons(name)
 	end
 end
 
-function PallyPower:IsNonPaladinEnabled()
-	return self.db and self.db.profile and self.db.profile.enableNonPaladin
-end
-
 function PallyPower:IsBuffingClass()
+	local profile = self.opt or (self.db and self.db.profile)
+	if profile and profile.enableNonPaladin then
+		return true
+	end
 	local _, class = UnitClass("player")
-	return (class == "PALADIN" or class == "DRUID" or self:IsNonPaladinEnabled())
+	return (class == "PALADIN" or class == "DRUID")
 end
 
 function PallyPower:ScanInventory()
 	self:Debug("Scan Inventory -- begin")
-	if not self:IsBuffingClass() then return end
+	if not PP_IsPally then return end
 
 	PP_Symbols = GetItemCount(21177)
 	AllPallys[self.player].symbols = PP_Symbols
@@ -1223,7 +1223,7 @@ end
 
 function PallyPower:InventoryScan()
 	self:ScanInventory()
-	if self:GetNumUnits() > 0 and self:IsBuffingClass() then
+	if self:GetNumUnits() > 0 and PP_IsPally then
 		self:SendMessage("SYMCOUNT " .. PP_Symbols)
 	end
 end
