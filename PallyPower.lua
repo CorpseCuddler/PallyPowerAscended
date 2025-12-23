@@ -2190,16 +2190,20 @@ function PallyPower:SetButton(baseName)
 	local time = _G[baseName.."Time"]
 	local text = _G[baseName.."Text"]
 
-	if (self.opt.display.HideCountText) then
-		text:Hide()
-	else
-		text:Show()
+	if text then
+		if (self.opt.display.HideCountText) then
+			text:Hide()
+		else
+			text:Show()
+		end
 	end
 
-	if (self.opt.display.HideTimerText) then
-		time:Hide()
-	else
-		time:Show()
+	if time then
+		if (self.opt.display.HideTimerText) then
+			time:Hide()
+		else
+			time:Show()
+		end
 	end
 end
 
@@ -2208,22 +2212,28 @@ function PallyPower:SetPButton(baseName)
 	local dead = _G[baseName.."Dead"]
 	local name = _G[baseName.."Name"]
 	
-	if (self.opt.display.HideRngText) then
-		rng:Hide()
-	else
-		rng:Show()
+	if rng then
+		if (self.opt.display.HideRngText) then
+			rng:Hide()
+		else
+			rng:Show()
+		end
 	end
 	
-	if (self.opt.display.HideDeadText) then
-		dead:Hide()
-	else
-		dead:Show()
+	if dead then
+		if (self.opt.display.HideDeadText) then
+			dead:Hide()
+		else
+			dead:Show()
+		end
 	end
 	
-	if (self.opt.display.HideNameText) then
-		name:Hide()
-	else
-		name:Show()
+	if name then
+		if (self.opt.display.HideNameText) then
+			name:Hide()
+		else
+			name:Show()
+		end
 	end
 end
 
