@@ -1165,6 +1165,13 @@ function PallyPower:ScanSpells()
 		PP_IsPally = false
 		
 	else
+		AllPallys[self.player] = {
+			AuraInfo = {},
+			class = class,
+		}
+		if self.db.profile.enableNonPaladin then
+			self:SyncAdd(self.player)
+		end
 		PP_IsPally = false
 	end
 	
@@ -1385,7 +1392,9 @@ function PallyPower:CHAT_MSG_SYSTEM()
 end
 
 function PallyPower:PLAYER_REGEN_ENABLED()
-	if PP_IsPally then self:UpdateLayout() end
+	if PP_IsPally or self.db.profile.enableNonPaladin then
+		self:UpdateLayout()
+	end
 end
 
 function PallyPower:CanControl(name)
