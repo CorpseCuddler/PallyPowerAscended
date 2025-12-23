@@ -53,46 +53,200 @@ end
 -- Buff Registry Activation
 -- ============================================================================
 
-PP.BuffFamilies = {
-    BLESSING = {
-        id = "BLESSING",
-        allowMultiple = false,
-        short = false,
-    },
-    DRUID = {
-        id = "DRUID",
-        allowMultiple = true,
-        short = false,
-    },
-    PRIEST = {
-        id = "PRIEST",
-        allowMultiple = true,
-        short = false,
-    },
-    SHAMAN = {
-        id = "SHAMAN",
-        allowMultiple = true,
-        short = true,
-    },
-}
+PP.BuffFamilies = PP.BuffFamilies or {}
+PP.BuffRegistry = PP.BuffRegistry or {}
+PP.BuffListCache = PP.BuffListCache or {}
+PP.GroupSpellLookup = PP.GroupSpellLookup or {}
+PP.BuffRegistryDirty = true
 
-PP.BuffRegistry = {
-    -- Paladin (unchanged)
-    ["Blessing of Might"] = { family = "BLESSING" },
-    ["Blessing of Kings"] = { family = "BLESSING" },
-    ["Blessing of Wisdom"] = { family = "BLESSING" },
+function PP:RegisterBuffFamily(familyId, data)
+    if not familyId or familyId == "" then return end
+    local family = self.BuffFamilies[familyId] or { id = familyId, buffs = {} }
+    self.BuffFamilies[familyId] = family
+    if data then
+        for key, value in pairs(data) do
+            family[key] = value
+        end
+        if data.classes then
+            family.classes = family.classes or {}
+            for _, classToken in ipairs(data.classes) do
+                family.classes[classToken] = true
+            end
+        end
+    end
+    family.buffs = family.buffs or {}
+    self.BuffRegistryDirty = true
+end
 
-    -- Druid
-    ["Mark of the Wild"] = { family = "DRUID" },
-    ["Thorns"] = { family = "DRUID", short = true },
+function PP:RegisterBuffFamilyClass(familyId, classToken)
+    local family = self.BuffFamilies[familyId]
+    if not family or not classToken then return end
+    family.classes = family.classes or {}
+    family.classes[classToken] = true
+    self.BuffRegistryDirty = true
+end
 
-    -- Priest
-    ["Power Word: Fortitude"] = { family = "PRIEST" },
-    ["Divine Spirit"] = { family = "PRIEST" },
+function PP:RegisterBuff(spellName, data)
+    if not spellName or spellName == "" or not data or not data.family then return end
+    local family = self.BuffFamilies[data.family] or { id = data.family, buffs = {} }
+    self.BuffFamilies[data.family] = family
+    local entry = self.BuffRegistry[spellName] or {}
+    entry.name = spellName
+    entry.family = data.family
+    entry.short = data.short
+    entry.long = data.long
+    entry.groupSpell = data.groupSpell
+    entry.icon = data.icon
+    entry.groupIcon = data.groupIcon
+    entry.classes = data.classes
+    entry.reagent = data.reagent
+    entry.spellId = data.spellId
+    entry.groupSpellId = data.groupSpellId
+    entry.talent = data.talent
+    if data.order then
+        entry.order = data.order
+        family.buffs[data.order] = spellName
+    else
+        family.buffs[#family.buffs + 1] = spellName
+        entry.order = #family.buffs
+    end
+    self.BuffRegistry[spellName] = entry
+    if data.groupSpell then
+        self.GroupSpellLookup[data.groupSpell] = spellName
+    end
+    self.BuffRegistryDirty = true
+end
 
-    -- Shaman
-    ["Earth Shield"] = { family = "SHAMAN", short = true },
-}
+function PP:RegisterAscensionBuff(spellName, data)
+    self:RegisterBuff(spellName, data)
+end
+
+function PP:RegisterHybridClassFamily(classToken, familyId)
+    self:RegisterBuffFamilyClass(familyId, classToken)
+    for _, data in pairs(self.BuffRegistry) do
+        if data.family == familyId and data.classes then
+            local exists = false
+            for _, class in ipairs(data.classes) do
+                if class == classToken then
+                    exists = true
+                    break
+                end
+            end
+            if not exists then
+                data.classes[#data.classes + 1] = classToken
+            end
+        end
+    end
+end
+
+function PP:RebuildBuffCache()
+    self.BuffListCache = {}
+    self.BuffRegistryDirty = false
+end
+
+function PP:GetFamiliesForClass(classToken)
+    local families = {}
+    if not classToken then return families end
+    for _, family in pairs(self.BuffFamilies) do
+        if family.classes and family.classes[classToken] then
+            families[#families + 1] = family
+        end
+    end
+    table.sort(families, function(a, b)
+        return (a.order or 0) < (b.order or 0)
+    end)
+    return families
+end
+
+function PP:IsBuffAllowedForClass(buffData, classToken)
+    if not buffData then return false end
+    if not buffData.classes then
+        return true
+    end
+    for _, class in ipairs(buffData.classes) do
+        if class == classToken then
+            return true
+        end
+    end
+    return false
+end
+
+function PP:GetBuffListForClass(classToken)
+    if not classToken then return {} end
+    if self.BuffRegistryDirty then
+        self:RebuildBuffCache()
+    end
+    if self.BuffListCache[classToken] then
+        return self.BuffListCache[classToken]
+    end
+    local list = {}
+    for _, family in ipairs(self:GetFamiliesForClass(classToken)) do
+        local ordered = {}
+        for index, buffName in pairs(family.buffs or {}) do
+            if type(index) == "number" then
+                ordered[#ordered + 1] = { index = index, name = buffName }
+            end
+        end
+        table.sort(ordered, function(a, b)
+            return a.index < b.index
+        end)
+        for _, entry in ipairs(ordered) do
+            local data = self.BuffRegistry[entry.name]
+            if data and self:IsBuffAllowedForClass(data, classToken) then
+                list[#list + 1] = entry.name
+            end
+        end
+    end
+    self.BuffListCache[classToken] = list
+    return list
+end
+
+function PP:GetBuffListForPlayer(name)
+    local classToken = self:GetPlayerClass(name)
+    return self:GetBuffListForClass(classToken)
+end
+
+function PP:GetBuffCountForClass(classToken)
+    local list = self:GetBuffListForClass(classToken)
+    return #list + 1
+end
+
+function PP:GetBuffCountForPlayer(name)
+    local classToken = self:GetPlayerClass(name)
+    return self:GetBuffCountForClass(classToken)
+end
+
+function PP:GetBuffNameByIndexForClass(classToken, index)
+    if not classToken then return nil end
+    if index == 0 then return nil end
+    local list = self:GetBuffListForClass(classToken)
+    return list[index]
+end
+
+function PP:GetBuffNameByIndexForPlayer(name, index)
+    local classToken = self:GetPlayerClass(name)
+    return self:GetBuffNameByIndexForClass(classToken, index)
+end
+
+function PP:GetBuffIconForIndex(casterName, index, useGroup)
+    local buffName = self:GetBuffNameByIndexForPlayer(casterName, index)
+    if not buffName then return nil end
+    local data = self.BuffRegistry[buffName]
+    if useGroup and data and data.groupIcon then
+        return data.groupIcon
+    end
+    return data and data.icon
+end
+
+function PP:GetBuffSpellForIndex(casterName, index, useGroup)
+    local buffName = self:GetBuffNameByIndexForPlayer(casterName, index)
+    if not buffName then return "" end
+    local data = self.BuffRegistry[buffName]
+    if useGroup and data and data.groupSpell then
+        return data.groupSpell
+    end
+    return buffName
+end
 
 PP.PlayerBuffs = {}
 
@@ -104,8 +258,9 @@ function PP:ScanPlayerSpells()
         local spellName = GetSpellName(i, BOOKTYPE_SPELL)
         if not spellName then break end
 
-        if self.BuffRegistry[spellName] then
-            self.PlayerBuffs[spellName] = true
+        local buffName = self.GroupSpellLookup[spellName] or spellName
+        if self.BuffRegistry[buffName] then
+            self.PlayerBuffs[buffName] = true
         end
         i = i + 1
     end
@@ -201,20 +356,23 @@ function PP:UpdateButtonPriority(button, buffName)
 end
 
 function PP:RegisterCustomBuff(spellName, family, opts)
-    PP.BuffRegistry[spellName] = {
+    if not spellName or not family then return end
+    PP:RegisterBuff(spellName, {
         family = family,
         short = opts and opts.short,
+        long = opts and opts.long,
         groupSpell = opts and opts.groupSpell,
-    }
+        icon = opts and opts.icon,
+        groupIcon = opts and opts.groupIcon,
+        classes = opts and opts.classes,
+        reagent = opts and opts.reagent,
+        spellId = opts and opts.spellId,
+        groupSpellId = opts and opts.groupSpellId,
+        order = opts and opts.order,
+    })
 end
 
--- Custom Ascension Buffs
-
-PP:RegisterCustomBuff(
-	-- example
-	--   "Blessing of Ascension",
-    { short = false }
-)
+-- Custom Ascension Buffs can register via PP:RegisterAscensionBuff or PP:RegisterCustomBuff.
 
 
 local dewdrop = AceLibrary("Dewdrop-2.0")
@@ -546,7 +704,7 @@ function PallyPowerGrid_NormalBlessingMenu(btn, mouseBtn, pname, class)
 				suf = ""
 			end
 			local blessings = {["0"] = sformat("%s%s%s", pre, "(none)", suf)}
-			for index, blessing in ipairs(PallyPower.Spells) do
+			for index, blessing in ipairs(PallyPower:GetBuffListForPlayer(pally)) do
 				if PallyPower:CanBuff(pally, index) then
 					--if PallyPower:NeedsBuff(class, index, pname) then
 						blessings[tostring(index)] = sformat("%s%s%s", pre, blessing, suf)
@@ -713,7 +871,7 @@ function PallyPowerConfigGrid_Update()
 					local icon
 					if normal == greater and movingPlayerFrame == getglobal(pbnt) then
 						if normal == greater then
-							getglobal(pbnt.."Icon"):SetTexture(PallyPower.NormalBlessingIcons[normal])
+							getglobal(pbnt.."Icon"):SetTexture(PallyPower:GetBuffIconForIndex(PallyPower.player, normal, false))
 						else
 							--getglobal("PallyPowerConfigFrameClassGroup"..i.."PlayerButton"..j.."Icon"):SetTexture(PallyPower.BlessingIcons[normal])
 							getglobal(pbnt.."Icon"):SetTexture("")
@@ -756,7 +914,7 @@ function PallyPowerConfigGrid_Update()
 			getglobal(fname .. "Symbols"):SetTextColor(1,1,0.5)
 			
 			-- display the rank/talents for the blessings...
-			for id = 1, PallyPower.BLESSINGS_COUNT - 1 do
+			for id = 1, PallyPower:GetBuffCountForPlayer(name) - 1 do
 				if SkillInfo[id] then
 					getglobal(fname.."Icon"..id):Show()
 					getglobal(fname.."Skill"..id):Show()
@@ -819,8 +977,7 @@ function PallyPowerConfigGrid_Update()
 			local classTokens = PallyPower:GetClassTokens()
 			for id, classToken in ipairs(classTokens) do
 				if BuffInfo and BuffInfo[classToken] then
-					local blessingIcons, normalIcons = PallyPower:GetBlessingIcons(name)
-					getglobal(fname.."Class"..id.."Icon"):SetTexture(blessingIcons[BuffInfo[classToken]])
+					getglobal(fname.."Class"..id.."Icon"):SetTexture(PallyPower:GetBuffIconForIndex(name, BuffInfo[classToken], true))
 				else
 					getglobal(fname.."Class"..id.."Icon"):SetTexture(nil)
 				end
@@ -866,7 +1023,8 @@ function PallyPower:Report(type)
 			local list = {}
 			for name in pairs(AllPallys) do
 				local blessings
-				for i = 1, PallyPower.BLESSINGS_COUNT - 1 do
+				local buffCount = PallyPower:GetBuffCountForPlayer(name)
+				for i = 1, buffCount - 1 do
 					list[i] = 0
 				end
 				for _, classToken in ipairs(PallyPower:GetClassTokens()) do
@@ -875,14 +1033,14 @@ function PallyPower:Report(type)
 						list[bid] = list[bid] + 1
 					end
 				end
-				for id = 1, PallyPower.BLESSINGS_COUNT - 1 do
+				for id = 1, buffCount - 1 do
 					if (list[id] > 0) then
 						if (blessings) then
 							blessings = blessings .. ", "
 						else
 							blessings = ""
 						end
-      					local spell = PallyPower.Spells[id]
+      					local spell = PallyPower:GetBuffNameByIndexForPlayer(name, id)
 						blessings = blessings .. spell
 					end
 				end
@@ -905,7 +1063,7 @@ function PallyPower:PerformCycle(name, class, skipzero)
 	class = self:NormalizeClassToken(class)
 	if not class then return end
 	local shift = IsShiftKeyDown()
-	local spells, gspells, maxblessings = self:GetSpellTables(name)
+	local maxblessings = self:GetBuffCountForPlayer(name)
 
 	if shift then class = self:GetClassTokenByIndex(4) end
 
@@ -955,7 +1113,7 @@ function PallyPower:PerformCycleBackwards(name, class, skipzero)
 	class = self:NormalizeClassToken(class)
 	if not class then return end
 	local shift = IsShiftKeyDown()
-	local spells, gspells, maxblessings = self:GetSpellTables(name)
+	local maxblessings = self:GetBuffCountForPlayer(name)
 
 	if shift then class = self:GetClassTokenByIndex(4) end
 
@@ -999,9 +1157,10 @@ function PallyPower:PerformPlayerCycle(arg1, pname, class)
 		blessing = PallyPower_NormalAssignments[playername][class][pname]
 	end
 
-	local test = (blessing - arg1) % PallyPower.BLESSINGS_COUNT
+	local buffCount = PallyPower:GetBuffCountForPlayer(playername)
+	local test = (blessing - arg1) % buffCount
 	while not (PallyPower:CanBuff(playername, test) and PallyPower:NeedsBuff(class, test, pname)) and test > 0 do
-		test = (test - arg1) % PallyPower.BLESSINGS_COUNT
+		test = (test - arg1) % buffCount
 		if test == blessing then
 			test = 0
 			break
@@ -1072,16 +1231,28 @@ function PallyPower:AssignPlayerAsClass(pname, pclass, tclass)
 end
 
 function PallyPower:CanBuff(name, test)
-	local spells, gspells, maxblessings = self:GetSpellTables(name)
-	
+	local classToken = self:GetPlayerClass(name)
+	local maxblessings = self:GetBuffCountForClass(classToken)
 	if test == maxblessings then
 		return true
 	end
-
-	if (not AllPallys[name][test]) or (AllPallys[name][test].rank == 0) then
+	local buffName = self:GetBuffNameByIndexForClass(classToken, test)
+	if not buffName or not self.BuffRegistry[buffName] then
 		return false
 	end
-	return true
+	if AllPallys[name] then
+		local info = AllPallys[name].buffs and AllPallys[name].buffs[buffName] or AllPallys[name][test]
+		if info and info.rank and info.rank > 0 then
+			return true
+		end
+		if info and info.known then
+			return true
+		end
+	end
+	if name == self.player then
+		return self.PlayerBuffs[buffName] == true
+	end
+	return false
 end
 
 function PallyPower:NeedsBuff(class, test, playerName)
@@ -1089,22 +1260,21 @@ function PallyPower:NeedsBuff(class, test, playerName)
 	if not classToken then
 		return true
 	end
-	if test==PallyPower.BLESSINGS_COUNT or test==0 then
+	local buffCount = self:GetBuffCountForPlayer(self.player)
+	if test==buffCount or test==0 then
 		return true
 	end
 
 	if self.opt.smartbuffs then
-		-- no wisdom for warriors, rogues and DKs
-		if (classToken == "WARRIOR" or classToken == "ROGUE" or classToken == "DEATHKNIGHT") and test == 1 then
-			return false
-		end
-		-- no salv for warriors except normal blessings
-		--if not playerName and class == 1 and test == 3 then
-		--	return false
-		--end
-		-- no might for casters
-		if (classToken == "PRIEST" or classToken == "MAGE" or classToken == "WARLOCK") and test == 2 then
-			return false
+		local buffName = self:GetBuffNameByIndexForPlayer(self.player, test)
+		if buffName == GetSpellInfo(19742) then -- Blessing of Wisdom
+			if classToken == "WARRIOR" or classToken == "ROGUE" or classToken == "DEATHKNIGHT" then
+				return false
+			end
+		elseif buffName == GetSpellInfo(19740) then -- Blessing of Might
+			if classToken == "PRIEST" or classToken == "MAGE" or classToken == "WARLOCK" then
+				return false
+			end
 		end
 	end
 
@@ -1133,64 +1303,64 @@ end
 function PallyPower:ScanSpells()
 	self:Debug("Scan Spells -- begin")
 	local _, class = UnitClass("player")
-	
-	if (class == "PALADIN") then
-		local RankInfo = {}
-		for i = 1, PallyPower.BLESSINGS_COUNT - 1 do -- find max spell ranks
-			local gspell = PallyPower.GSpells[i]
-			local spell = PallyPower.Spells[i]
-			local spellName, spellRank
-			
-			if gspell and gspell == "" then
-				spellName, spellRank = GetSpellInfo(gspell)
-			end
-			
-			if not spellName and spell and spell == "" then -- fallback to lower blessings
-				spellName, spellRank = GetSpellInfo(spell)
-			end
-			if not spellRank or spellRank == "" then -- spells without ranks BoK, Salv in TBC, Sanc in WotLK)
-				local spellKnown
-				if i == 3 then -- blessing of kings
-					spellKnown = IsSpellKnown(20217)
-				elseif i == 6 then -- blessing of salvation
-					spellKnown = IsSpellKnown(1038)
-				end
-				if spellKnown then
-					spellRank = "Rank 1"
-				else
-					spellRank = "0"
-				end
-			end
-			local rank = select(3, sfind(spellRank, "(%d+)"))
-			local talent = 0
-			rank = tonumber(rank)
-			if spellName then
-				RankInfo[i] = {}
-				RankInfo[i].rank = rank
-				if i == 1 then  -- wisdom
-					talent = talent + select(5, GetTalentInfo(1, 10))
-				elseif i == 2 then -- might
-					talent = talent + select(5, GetTalentInfo(3, 1))
-				end
 
-				RankInfo[i].talent = talent
+	local function buildBuffInfo(classToken)
+		local RankInfo = {}
+		local BuffInfoByName = {}
+		for index, buffName in ipairs(self:GetBuffListForClass(classToken)) do
+			local data = self.BuffRegistry[buffName] or {}
+			local spellId = data.spellId or buffName
+			local spellName, spellRank = GetSpellInfo(spellId)
+			local known = false
+			if data.spellId then
+				known = IsSpellKnown(data.spellId)
+			elseif spellName then
+				known = true
 			end
+			if (not known) and data.groupSpellId then
+				known = IsSpellKnown(data.groupSpellId)
+			end
+			local rank = 0
+			if known then
+				if spellRank and spellRank ~= "" then
+					rank = tonumber(select(3, sfind(spellRank, "(%d+)"))) or 0
+				else
+					rank = 1
+				end
+			end
+			local talent = 0
+			if data.talent then
+				talent = talent + (select(5, GetTalentInfo(data.talent.tree, data.talent.index)) or 0)
+			end
+			RankInfo[index] = {
+				rank = rank,
+				talent = talent,
+				known = known,
+			}
+			BuffInfoByName[buffName] = RankInfo[index]
 		end
-		
+		return RankInfo, BuffInfoByName
+	end
+
+	local RankInfo, BuffInfoByName = buildBuffInfo(class)
+	if self.db.profile.enableNonPaladin or self:GetBuffCountForClass(class) > 1 then
 		self:SyncAdd(self.player)
-		
-		AllPallys[self.player] = RankInfo
-		AllPallys[self.player].AuraInfo = {}
-		AllPallys[self.player].class = "PALADIN"
-		
+	end
+
+	AllPallys[self.player] = RankInfo
+	AllPallys[self.player].buffs = BuffInfoByName
+	AllPallys[self.player].AuraInfo = {}
+	AllPallys[self.player].class = class
+
+	if class == "PALADIN" then
 		for i = 1, PALLYPOWER_MAXAURAS do -- find max ranks/talents for auras
 			local auraSpell = PallyPower.Auras[i]
 			if auraSpell and auraSpell == "" then
 				local spellName, spellRank = GetSpellInfo(auraSpell)
-				
+
 				if spellName then
 					AllPallys[self.player].AuraInfo[i] = {}
-					
+
 					if not spellRank or spellRank == "" then -- spells without ranks
 						local spellKnown
 						if i == 3 then -- concentration aura
@@ -1206,7 +1376,7 @@ function PallyPower:ScanSpells()
 							spellRank = "0"
 						end
 					end
-					
+
 					local talent = 0
 					if i == 1 then
 						talent = talent + select(5, GetTalentInfo(2, 1)) -- Improved Devotion Aura
@@ -1223,61 +1393,9 @@ function PallyPower:ScanSpells()
 				end  -- closes if spellName
 			end  -- closes if auraSpell
 		end  -- closes for loop
-		
-		PP_IsPally = true
-		
-	elseif (class == "DRUID") then
-		local RankInfo = {}
-		for i = 1, PallyPower.DRUID_BLESSINGS_COUNT - 1 do -- find max spell ranks for druid
-			local gspell = PallyPower.DruidGSpells[i]
-			local spell = PallyPower.DruidSpells[i]
-			local spellName, spellRank
-			
-			if gspell and gspell == "" then
-				spellName, spellRank = GetSpellInfo(gspell)
-			end
-			
-			if not spellName and spell and spell == "" then -- fallback to lower rank
-				spellName, spellRank = GetSpellInfo(spell)
-			end
-			
-			if not spellRank or spellRank == "" then
-				spellRank = "Rank 1"
-			end
-			
-			local rank = select(3, sfind(spellRank, "(%d+)"))
-			local talent = 0
-			rank = tonumber(rank) or 1
-			
-			if spellName then
-				RankInfo[i] = {}
-				RankInfo[i].rank = rank
-				-- Druid talents for buffs (can add later)
-				if i == 1 then  -- Mark of the Wild - Improved MotW
-					talent = talent + select(5, GetTalentInfo(3, 3)) -- Improved Mark of the Wild
-				end
-				RankInfo[i].talent = talent
-			end
-		end
-		
-		self:SyncAdd(self.player)
-		
-		AllPallys[self.player] = RankInfo
-		AllPallys[self.player].AuraInfo = {}
-		AllPallys[self.player].class = "DRUID"
-		
-		PP_IsPally = false
-		
-	else
-		AllPallys[self.player] = {
-			AuraInfo = {},
-			class = class,
-		}
-		if self.db.profile.enableNonPaladin then
-			self:SyncAdd(self.player)
-		end
-		PP_IsPally = false
 	end
+
+	PP_IsPally = (class == "PALADIN")
 	
 	initalized = true
 	self:Debug("Scan Spells -- end")
@@ -1287,25 +1405,23 @@ function PallyPower:GetPlayerClass(name)
 	if AllPallys[name] and AllPallys[name].class then
 		return AllPallys[name].class
 	end
+	if name == self.player then
+		local _, class = UnitClass("player")
+		return class
+	end
 	return nil
 end
 
-function PallyPower:GetSpellTables(name)
-	local class = self:GetPlayerClass(name)
-	if class == "DRUID" then
-		return PallyPower.DruidSpells, PallyPower.DruidGSpells, PallyPower.DRUID_BLESSINGS_COUNT
-	else -- default to Paladin
-		return PallyPower.Spells, PallyPower.GSpells, PallyPower.BLESSINGS_COUNT
+function PallyPower:GetRosterClassToken(name)
+	if not name then return nil end
+	for _, classToken in ipairs(self:GetClassTokens()) do
+		for _, unit in pairs(classes[classToken] or {}) do
+			if unit.name == name then
+				return unit.class
+			end
+		end
 	end
-end
-
-function PallyPower:GetBlessingIcons(name)
-	local class = self:GetPlayerClass(name)
-	if class == "DRUID" then
-		return PallyPower.DruidBlessingIcons, PallyPower.DruidNormalBlessingIcons
-	else -- default to Paladin
-		return PallyPower.BlessingIcons, PallyPower.NormalBlessingIcons
-	end
+	return nil
 end
 
 function PallyPower:IsBuffingClass()
@@ -1314,7 +1430,7 @@ function PallyPower:IsBuffingClass()
 		return true
 	end
 	local _, class = UnitClass("player")
-	return (class == "PALADIN" or class == "DRUID")
+	return self:GetBuffCountForClass(class) > 1
 end
 
 function PallyPower:ScanInventory()
@@ -1342,7 +1458,7 @@ function PallyPower:SendSelf()
 
 	local SkillInfo = AllPallys[self.player]
 	s = ""
-	for i = 1, PallyPower.BLESSINGS_COUNT - 1 do
+	for i = 1, self:GetBuffCountForPlayer(self.player) - 1 do
 		if not SkillInfo[i] then
 			s = s.."nn"
 		else
@@ -1572,18 +1688,29 @@ function PallyPower:ParseMessage(sender, msg)
 	if sfind(msg, "^SELF") then
 		PallyPower_NormalAssignments[sender] = {}
 		PallyPower_Assignments[sender] = { }
-		AllPallys[sender] = { }
+		local existing = AllPallys[sender] or {}
+		AllPallys[sender] = { class = existing.class }
 		
 		self:SyncAdd(sender)
 		
 		_, _, numbers, assign = sfind(msg, "SELF ([0-9n]*)@([0-9n]*)")
-		for i = 1, 6 do
+		local total = math.floor(numbers:len() / 2)
+		local senderClass = self:GetPlayerClass(sender) or self:GetRosterClassToken(sender)
+		if senderClass and not AllPallys[sender].class then
+			AllPallys[sender].class = senderClass
+		end
+		AllPallys[sender].buffs = {}
+		for i = 1, total do
 			rank = ssub(numbers, (i - 1) * 2 + 1, (i - 1) * 2 + 1)
 			talent = ssub(numbers, (i - 1) * 2 + 2, (i - 1) * 2 + 2)
-			if rank == "n" then
+			if rank ~= "n" and rank ~= "" then
 				AllPallys[sender][i] = { }
-				AllPallys[sender][i].rank = tonumber(rank)
-				AllPallys[sender][i].talent = tonumber(talent)
+				AllPallys[sender][i].rank = tonumber(rank) or 0
+				AllPallys[sender][i].talent = tonumber(talent) or 0
+				local buffName = self:GetBuffNameByIndexForClass(senderClass, i)
+				if buffName then
+					AllPallys[sender].buffs[buffName] = AllPallys[sender][i]
+				end
 			end
 		end
 		-- sort here
@@ -1663,7 +1790,7 @@ function PallyPower:ParseMessage(sender, msg)
 		for i = 1, PALLYPOWER_MAXAURAS do
 			rank = ssub(numbers, (i - 1) * 2 + 1, (i - 1) * 2 + 1)
 			talent = ssub(numbers, (i - 1) * 2 + 2, (i - 1) * 2 + 2)
-			if rank == "n" then
+			if rank ~= "n" and rank ~= "" then
 				AllPallys[sender].AuraInfo[i] = { }
 				AllPallys[sender].AuraInfo[i].rank = tonumber(rank,16)
 				AllPallys[sender].AuraInfo[i].talent = tonumber(talent,16)
@@ -1765,6 +1892,9 @@ function PallyPower:UpdateRoster()
 				else 
 					tmp.class = select(2, UnitClass(unitid))
 				end
+
+				AllPallys[tmp.name] = AllPallys[tmp.name] or {}
+				AllPallys[tmp.name].class = tmp.class
 			
 				if isInRaid then
 					local n = select(3, unitid:find("(%d+)"))
@@ -1846,17 +1976,16 @@ end
 
 function PallyPower:ScanClass(classToken)
 	local class = classes[classToken] or {}
-	local spells, gspells = self:GetSpellTables(self.player)
 
 	for playerID, unit in pairs(class) do
 		if unit.unitid then
 			local spellID, gspellID = self:GetSpellID(classToken, unit.name)
-			local spell = spells[spellID]
-			local spell2 = gspells[spellID]
-			local gspell = gspells[gspellID]
+			local spell = self:GetBuffSpellForIndex(self.player, spellID, false)
+			local spell2 = self:GetBuffSpellForIndex(self.player, spellID, true)
+			local gspell = self:GetBuffSpellForIndex(self.player, gspellID, true)
 			
 			-- Add safety checks
-			if spell and spell == "" then
+			if spell and spell ~= "" then
 				unit.visible = IsSpellInRange(spell, unit.unitid) == 1
 			else
 				unit.visible = false
@@ -2447,8 +2576,7 @@ function PallyPower:UpdateButton(button, baseName, classToken)
 	classIcon:SetTexture(self:GetClassIcon(classToken))
 	classIcon:SetVertexColor(1, 1, 1)
 	local _, gspellID = PallyPower:GetSpellID(classToken)
-	local blessingIcons, normalIcons = self:GetBlessingIcons(self.player)
-	buffIcon:SetTexture(blessingIcons[gspellID])
+	buffIcon:SetTexture(self:GetBuffIconForIndex(self.player, gspellID, true))
 
 	if InCombatLockdown() then
 		buffIcon:SetVertexColor(0.4, 0.4, 0.4)
@@ -2493,14 +2621,13 @@ end
 function PallyPower:GetBuffExpiration(classToken)
 	local class = classes[classToken] or {}
 	local classExpire, classDuration, specialExpire, specialDuration = 9999, 9999, 9999, 9999
-	local spells, gspells = self:GetSpellTables(self.player)
 	
 	for playerID, unit in pairs(class) do
 		if unit.unitid then
 			local j = 1
 			local spellID, gspellID = self:GetSpellID(classToken, unit.name)
-			local spell = spells[spellID]
-			local gspell = gspells[gspellID]
+			local spell = self:GetBuffSpellForIndex(self.player, spellID, false)
+			local gspell = self:GetBuffSpellForIndex(self.player, gspellID, true)
 			local buffName, _, _, _, _, buffDuration, buffExpire = UnitBuff(unit.unitid, j)
 			while buffExpire do
 				buffExpire = buffExpire - GetTime()
@@ -2588,16 +2715,14 @@ function PallyPower:UpdatePButton(button, baseName, classToken, playerID)
 		end
 
 		local spellID, gspellID = self:GetSpellID(classToken, unit.name)
-		local blessingIcons, normalIcons = self:GetBlessingIcons(self.player)
-		buffIcon:SetTexture(blessingIcons[spellID])
+		buffIcon:SetTexture(self:GetBuffIconForIndex(self.player, spellID, true))
 		buffIcon:SetVertexColor(1, 1, 1)
 
 		time:SetText(self:FormatTime(unit.hasbuff))
 
 		if (not InCombatLockdown()) then
-			local spells, gspells = self:GetSpellTables(self.player)
-			button:SetAttribute("spell1", gspells[gspellID])
-			button:SetAttribute("spell2", spells[spellID])
+			button:SetAttribute("spell1", self:GetBuffSpellForIndex(self.player, gspellID, true))
+			button:SetAttribute("spell2", self:GetBuffSpellForIndex(self.player, spellID, false))
 		end
 
 		if (nspecial == 1) then
@@ -2651,7 +2776,6 @@ end
 
 function PallyPower:ButtonsUpdate()
 	local minClassExpire, minClassDuration, minSpecialExpire, minSpecialDuration, sumnhave, sumnneed, sumnspecial = 9999, 9999, 9999, 9999, 0, 0, 0
-	local spells, gspells = self:GetSpellTables(self.player)
 	
 	for cbNum = 1, #self.classButtons do -- scan classes and if populated then assign textures, etc
 		local cButton = self.classButtons[cbNum]
@@ -2779,7 +2903,6 @@ function PallyPower:GetSpellID(classToken, playerName)
 end
 
 function PallyPower:GetSpellName(classToken, playerName, spellID)
-	local spells, gspells = self:GetSpellTables(self.player)
 	local normal = spellID or 0
 	local greater = spellID or 0
 	
@@ -2796,7 +2919,7 @@ function PallyPower:GetSpellName(classToken, playerName, spellID)
 		normal = greater
 	end
 	
-	return spells[normal], gspells[greater]
+	return self:GetBuffSpellForIndex(self.player, normal, false), self:GetBuffSpellForIndex(self.player, greater, true)
 end
 
 function PallyPower:GetUnit(classToken, playerID)
@@ -2807,26 +2930,25 @@ end
 function PallyPower:GetUnitAndSpellSmart(classToken, mousebutton)
 	local i, unit
 	local class = classes[classToken]
-	local spells, gspells = self:GetSpellTables(self.player)
     
  	local spellID, gspellID = PallyPower:GetSpellID(classToken)
 	local spell, gspell    
 	if (mousebutton == "LeftButton") then
-		gspell = gspells[gspellID]
+		gspell = self:GetBuffSpellForIndex(self.player, gspellID, true)
 		for i, unit in pairs(class) do
 			if IsSpellInRange(gspell, unit.unitid) == 1 then
 				spellID, gspellID = PallyPower:GetSpellID(classToken, unit.name)
-				spell = spells[spellID]
-				gspell = gspells[gspellID]
+				spell = self:GetBuffSpellForIndex(self.player, spellID, false)
+				gspell = self:GetBuffSpellForIndex(self.player, gspellID, true)
 				return unit.unitid, spell, gspell
 			end
 		end
 	elseif (mousebutton == "RightButton") then
 		for i, unit in pairs(class) do
 			spellID, gspellID = PallyPower:GetSpellID(classToken, unit.name)
-		 	spell = spells[spellID]
-			spell2 = gspells[spellID]
-			gspell = gspells[gspellID]
+		 	spell = self:GetBuffSpellForIndex(self.player, spellID, false)
+			spell2 = self:GetBuffSpellForIndex(self.player, spellID, true)
+			gspell = self:GetBuffSpellForIndex(self.player, gspellID, true)
 			local buffExpire, buffDuration = self:IsBuffActive(spell, spell2, unit.unitid)
 			if (not buffExpire or buffExpire/buffDuration < 0.5) and IsSpellInRange(spell, unit.unitid) == 1 then
 				return unit.unitid, spell, gspell
@@ -2942,12 +3064,11 @@ function PallyPower:AutoBuff(mousebutton)
 				if (classes[classToken] and classes[classToken][j]) then
 					local unit = classes[classToken][j]
 					local spellid, gspellid = self:GetSpellID(classToken, unit.name)
-					local spells, gspells = self:GetSpellTables(self.player)
-					local spell = spells[spellid]
-					local spell2 = gspells[spellid]
-					local gspell = gspells[gspellid]
+					local spell = self:GetBuffSpellForIndex(self.player, spellid, false)
+					local spell2 = self:GetBuffSpellForIndex(self.player, spellid, true)
+					local gspell = self:GetBuffSpellForIndex(self.player, gspellid, true)
 					--self:Print(unit.name .. ": " .. groupCount[select(3, GetRaidRosterInfo(select(3, unit.unitid:find("(%d+)"))))])
-					if (spellid == gspellid and unit.unitid and spell and spell == "") then
+					if (spellid == gspellid and unit.unitid and spell and spell ~= "") then
 						if (IsSpellInRange(spell, unit.unitid) == 1) then
 							local penalty = 0
 							if (self.AutoBuffedList[unit.name] and now - self.AutoBuffedList[unit.name] < 20) then
@@ -2996,11 +3117,10 @@ function PallyPower:AutoBuff(mousebutton)
 		--for unit in RL:IterateRoster(true) do
 		for _, unit in ipairs(roster) do
 			local spellID, gspellID = self:GetSpellID(unit.class, unit.name)
-			local spells, gspells = self:GetSpellTables(self.player)
-			local spell = spells[spellID]
-			local spell2 = gspells[spellID]
-			local gspell = gspells[gspellID]
-			if (spell and spell == "" and IsSpellInRange(spell, unit.unitid) == 1) then
+			local spell = self:GetBuffSpellForIndex(self.player, spellID, false)
+			local spell2 = self:GetBuffSpellForIndex(self.player, spellID, true)
+			local gspell = self:GetBuffSpellForIndex(self.player, gspellID, true)
+			if (spell and spell ~= "" and IsSpellInRange(spell, unit.unitid) == 1) then
 				local penalty = 0
 				if (self.AutoBuffedList[unit.name] and now - self.AutoBuffedList[unit.name] < 20) then
 					penalty = PALLYPOWER_NORMALBLESSINGDURATION / 2
