@@ -294,6 +294,9 @@ function PallyPower:OnInitialize()
 	self:RegisterDefaults("profile", PALLYPOWER_DEFAULT_VALUES)
 	self.player = UnitName("player")
 	self.opt = self.db.profile
+	if self.opt.enableNonPaladin == nil then
+		self.opt.enableNonPaladin = false
+	end
 	self:ScanInventory()
 	self:CreateLayout()
 	if self.opt.skin then
@@ -310,6 +313,9 @@ end
 
 function PallyPower:OnProfileEnable()
     self.opt = self.db.profile
+	if self.opt.enableNonPaladin == nil then
+		self.opt.enableNonPaladin = false
+	end
 	PallyPower:UpdateLayout()
 	--PallyPower:RFAssign(self.opt.rf)
 	--PallyPower:SealAssign(self.opt.seal)
