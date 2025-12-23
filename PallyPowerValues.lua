@@ -126,6 +126,7 @@ PallyPower:RegisterBuff(SpellName(19742), {
 	icon = "Interface\\Icons\\Spell_Holy_SealOfWisdom",
 	groupIcon = "Interface\\Icons\\Spell_Holy_GreaterBlessingofWisdom",
 	classes = { "PALADIN" },
+	targetDeny = { "WARRIOR", "ROGUE", "DEATHKNIGHT" },
 	reagent = { itemId = 21177, count = 1 },
 	spellId = 19742,
 	groupSpellId = 25894,
@@ -141,6 +142,7 @@ PallyPower:RegisterBuff(SpellName(19740), {
 	icon = "Interface\\Icons\\Spell_Holy_FistOfJustice",
 	groupIcon = "Interface\\Icons\\Spell_Holy_GreaterBlessingofKings",
 	classes = { "PALADIN" },
+	targetDeny = { "PRIEST", "MAGE", "WARLOCK" },
 	reagent = { itemId = 21177, count = 1 },
 	spellId = 19740,
 	groupSpellId = 25782,
@@ -385,6 +387,28 @@ PallyPower.Templates={
 		[11]= {2, 1, 4, 3},
 	},
 }
+
+local function ResolveBlessingKey(spellId)
+	local buffName = SpellName(spellId)
+	return PallyPower:GetBuffKey(buffName) or spellId
+end
+
+local blessingKeyMap = {
+	[1] = ResolveBlessingKey(19742), -- wisdom
+	[2] = ResolveBlessingKey(19740), -- might
+	[3] = ResolveBlessingKey(20217), -- kings
+	[4] = ResolveBlessingKey(20911), -- sanctuary
+}
+
+for _, classTemplates in pairs(PallyPower.Templates) do
+	for _, priorityList in pairs(classTemplates) do
+		for index, legacyKey in ipairs(priorityList) do
+			if blessingKeyMap[legacyKey] then
+				priorityList[index] = blessingKeyMap[legacyKey]
+			end
+		end
+	end
+end
 -- Layouts
 PallyPower.Layouts = {
 	["Layout 1"] = { 	
