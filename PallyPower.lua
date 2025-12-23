@@ -2114,10 +2114,9 @@ function PallyPower:UpdateLayout()
 		end
 	end
 	
-	do
 	local cbNum = 0
 	for classIndex = 1, PALLYPOWER_MAXCLASSES do
-    local _, gspellID = PallyPower:GetSpellID(classIndex)
+	    local _, gspellID = PallyPower:GetSpellID(classIndex)
 
     if classlist[classIndex]
        and classlist[classIndex] ~= 0
@@ -2175,7 +2174,6 @@ end
 			pButton:Hide()
 		end
 	end
-end
 	self:ButtonsUpdate()
 	if displayedButtons then
 		self:UpdateAnchor(displayedButtons)
