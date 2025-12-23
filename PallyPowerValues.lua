@@ -10,17 +10,41 @@ PALLYPOWER_MAXPERCLASS = 8;
 PALLYPOWER_NORMALBLESSINGDURATION = 10*60;
 PALLYPOWER_GREATERBLESSINGDURATION = 30*60;
 PALLYPOWER_MAXAURAS = 8;
-PallyPower.BLESSINGS_COUNT = 7;
 PallyPower.SEALS_COUNT = 11;
 
 PallyPower.CONFIG_DRAGHANDLE = L["DRAGHANDLE"];
 
-PallyPower.ClassBuffFamilies = {
-    PALADIN = { "BLESSING" },
-    DRUID   = { "DRUID" },
-    PRIEST  = { "PRIEST" },
-    SHAMAN  = { "SHAMAN" },
-}
+local function SpellName(spellId)
+	return GetSpellInfo(spellId)
+end
+
+PallyPower:RegisterBuffFamily("BLESSING", {
+	order = 1,
+	allowMultiple = false,
+	short = false,
+	classes = { "PALADIN" },
+})
+
+PallyPower:RegisterBuffFamily("DRUID", {
+	order = 2,
+	allowMultiple = true,
+	short = false,
+	classes = { "DRUID" },
+})
+
+PallyPower:RegisterBuffFamily("PRIEST", {
+	order = 3,
+	allowMultiple = true,
+	short = false,
+	classes = { "PRIEST" },
+})
+
+PallyPower:RegisterBuffFamily("SHAMAN", {
+	order = 4,
+	allowMultiple = true,
+	short = true,
+	classes = { "SHAMAN" },
+})
 
 
 PALLYPOWER_DEFAULT_VALUES = {
@@ -93,25 +117,91 @@ PallyPower_Credits1 = "Pally Power - by Aznamir, Phill Warmane";
 
 PallyPower.BuffBarTitle = "Pally Buffs (%d)";
 
-PallyPower.BlessingIcons = {
-    [-1] = "",
-	[1] = "Interface\\Icons\\Spell_Holy_GreaterBlessingofWisdom",
-	[2] = "Interface\\Icons\\Spell_Holy_GreaterBlessingofKings",
-	[3] = "Interface\\Icons\\Spell_Magic_GreaterBlessingofKings",
-	[4] = "Interface\\Icons\\Spell_Holy_GreaterBlessingofSanctuary",
-	[5] = "Interface\\Icons\\Spell_Holy_GreaterBlessingofLight",
-	[6] = "Interface\\Icons\\Spell_Holy_GreaterBlessingofSalvation",
-};
-	
-PallyPower.NormalBlessingIcons = {
-    [-1] = "",
-	[1] = "Interface\\Icons\\Spell_Holy_SealOfWisdom",
-	[2] = "Interface\\Icons\\Spell_Holy_FistOfJustice",
-	[3] = "Interface\\Icons\\Spell_Magic_MageArmor",
-	[4] = "Interface\\Icons\\Spell_Nature_LightningShield",
-	[5] = "Interface\\Icons\\Spell_Holy_PrayerOfHealing02",
-	[6] = "Interface\\Icons\\Spell_Holy_SealOfSalvation",
-};
+PallyPower:RegisterBuff(SpellName(19742), {
+	family = "BLESSING",
+	order = 1,
+	short = false,
+	long = true,
+	groupSpell = SpellName(25894),
+	icon = "Interface\\Icons\\Spell_Holy_SealOfWisdom",
+	groupIcon = "Interface\\Icons\\Spell_Holy_GreaterBlessingofWisdom",
+	classes = { "PALADIN" },
+	reagent = { itemId = 21177, count = 1 },
+	spellId = 19742,
+	groupSpellId = 25894,
+	talent = { tree = 1, index = 10 },
+})
+
+PallyPower:RegisterBuff(SpellName(19740), {
+	family = "BLESSING",
+	order = 2,
+	short = false,
+	long = true,
+	groupSpell = SpellName(25782),
+	icon = "Interface\\Icons\\Spell_Holy_FistOfJustice",
+	groupIcon = "Interface\\Icons\\Spell_Holy_GreaterBlessingofKings",
+	classes = { "PALADIN" },
+	reagent = { itemId = 21177, count = 1 },
+	spellId = 19740,
+	groupSpellId = 25782,
+	talent = { tree = 3, index = 1 },
+})
+
+PallyPower:RegisterBuff(SpellName(20217), {
+	family = "BLESSING",
+	order = 3,
+	short = false,
+	long = true,
+	groupSpell = SpellName(25898),
+	icon = "Interface\\Icons\\Spell_Magic_MageArmor",
+	groupIcon = "Interface\\Icons\\Spell_Magic_GreaterBlessingofKings",
+	classes = { "PALADIN" },
+	reagent = { itemId = 21177, count = 1 },
+	spellId = 20217,
+	groupSpellId = 25898,
+})
+
+PallyPower:RegisterBuff(SpellName(20911), {
+	family = "BLESSING",
+	order = 4,
+	short = false,
+	long = true,
+	groupSpell = SpellName(25899),
+	icon = "Interface\\Icons\\Spell_Nature_LightningShield",
+	groupIcon = "Interface\\Icons\\Spell_Holy_GreaterBlessingofSanctuary",
+	classes = { "PALADIN" },
+	reagent = { itemId = 21177, count = 1 },
+	spellId = 20911,
+	groupSpellId = 25899,
+})
+
+PallyPower:RegisterBuff(SpellName(19979), {
+	family = "BLESSING",
+	order = 5,
+	short = false,
+	long = true,
+	groupSpell = SpellName(25890),
+	icon = "Interface\\Icons\\Spell_Holy_PrayerOfHealing02",
+	groupIcon = "Interface\\Icons\\Spell_Holy_GreaterBlessingofLight",
+	classes = { "PALADIN" },
+	reagent = { itemId = 21177, count = 1 },
+	spellId = 19979,
+	groupSpellId = 25890,
+})
+
+PallyPower:RegisterBuff(SpellName(1038), {
+	family = "BLESSING",
+	order = 6,
+	short = false,
+	long = true,
+	groupSpell = SpellName(25895),
+	icon = "Interface\\Icons\\Spell_Holy_SealOfSalvation",
+	groupIcon = "Interface\\Icons\\Spell_Holy_GreaterBlessingofSalvation",
+	classes = { "PALADIN" },
+	reagent = { itemId = 21177, count = 1 },
+	spellId = 1038,
+	groupSpellId = 25895,
+})
 
 PallyPower.AuraIcons = {
     [-1] = "",
@@ -137,53 +227,60 @@ PALLYPOWER_FREEASSIGN = L["FREEASSIGN"]
 PALLYPOWER_ASSIGNMENTS1 = L["PP_RAS1"];
 PALLYPOWER_ASSIGNMENTS2 = L["PP_RAS2"];
 
--- Pally Spells
-PallyPower.Spells = {
-	[0] = "",
-	[1] = GetSpellInfo(19742), --BS["Blessing of Wisdom"],
-	[2] = GetSpellInfo(19740), --BS["Blessing of Might"],
-	[3] = GetSpellInfo(20217), --BS["Blessing of Kings"],
-	[4] = GetSpellInfo(20911), --BS["Blessing of Sanctuary"],
-	[5] = GetSpellInfo(19979), --BS["Blessing of Light"],
-	[6] = GetSpellInfo(1038), --BS["Blessing of Salvation"],
-};
+-- Additional Buff Registrations
+PallyPower:RegisterBuff(SpellName(467), {
+	family = "DRUID",
+	order = 1,
+	short = true,
+	long = false,
+	icon = "Interface\\Icons\\Spell_Nature_Thorns",
+	classes = { "DRUID" },
+	spellId = 467,
+})
 
-PallyPower.GSpells = {
-	[0] = "",
-	[1] = GetSpellInfo(25894), --BS["Greater Blessing of Wisdom"],
-	[2] = GetSpellInfo(25782), --BS["Greater Blessing of Might"],
-	[3] = GetSpellInfo(25898), --BS["Greater Blessing of Kings"],
-	[4] = GetSpellInfo(25899), --BS["Greater Blessing of Sanctuary"],
-	[5] = GetSpellInfo(25890), --BS["Greater Blessing of Light"],
-	[6] = GetSpellInfo(25895), --BS["Greater Blessing of Salvation"],
-};
+PallyPower:RegisterBuff(SpellName(1126), {
+	family = "DRUID",
+	order = 2,
+	short = false,
+	long = true,
+	groupSpell = SpellName(21849),
+	icon = "Interface\\Icons\\Spell_Nature_Regeneration",
+	groupIcon = "Interface\\Icons\\Spell_Nature_Regeneration",
+	classes = { "DRUID" },
+	spellId = 1126,
+	groupSpellId = 21849,
+	talent = { tree = 3, index = 3 },
+})
 
--- Druid Spells
-PallyPower.DruidSpells = {
-    "",
-    "Thorns",
-    "Mark of the Wild"
-}
+PallyPower:RegisterBuff(SpellName(1243), {
+	family = "PRIEST",
+	order = 1,
+	short = false,
+	long = true,
+	icon = "Interface\\Icons\\Spell_Holy_WordFortitude",
+	classes = { "PRIEST" },
+	spellId = 1243,
+})
 
-PallyPower.DruidGSpells = {
-    "",
-    "Thorns",
-    "Gift of the Wild"
-}
+PallyPower:RegisterBuff(SpellName(14752), {
+	family = "PRIEST",
+	order = 2,
+	short = false,
+	long = true,
+	icon = "Interface\\Icons\\Spell_Holy_DivineSpirit",
+	classes = { "PRIEST" },
+	spellId = 14752,
+})
 
-PallyPower.DruidBlessingIcons = {
-    [-1] = "",
-    [1] = "Interface\\Icons\\Spell_Nature_Regeneration",
-    [2] = "Interface\\Icons\\Spell_Nature_Thorns"
-}
-
-PallyPower.DruidNormalBlessingIcons = {
-    [-1] = "",
-    [1] = "Interface\\Icons\\Spell_Nature_Regeneration",
-    [2] = "Interface\\Icons\\Spell_Nature_Thorns"
-}
-
-PallyPower.DRUID_BLESSINGS_COUNT = 3
+PallyPower:RegisterBuff(SpellName(974), {
+	family = "SHAMAN",
+	order = 1,
+	short = true,
+	long = false,
+	icon = "Interface\\Icons\\Spell_Nature_SkinOfEarth",
+	classes = { "SHAMAN" },
+	spellId = 974,
+})
 
 
 PallyPower.RFSpell = GetSpellInfo(25780) --BS["Righteous Fury"]
