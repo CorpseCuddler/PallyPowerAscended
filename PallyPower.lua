@@ -1171,6 +1171,13 @@ function PallyPower:ScanSpells()
 		PP_IsPally = false
 		
 	else
+		AllPallys[self.player] = {
+			AuraInfo = {},
+			class = class,
+		}
+		if self.db.profile.enableNonPaladin then
+			self:SyncAdd(self.player)
+		end
 		PP_IsPally = false
 	end
 	
