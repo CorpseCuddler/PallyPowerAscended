@@ -1198,6 +1198,10 @@ function PallyPower:GetBlessingIcons(name)
 end
 
 function PallyPower:IsBuffingClass()
+	local profile = self.opt or (self.db and self.db.profile)
+	if profile and profile.enableNonPaladin then
+		return true
+	end
 	local _, class = UnitClass("player")
 	return (class == "PALADIN" or class == "DRUID")
 end
@@ -1385,7 +1389,7 @@ function PallyPower:CHAT_MSG_SYSTEM()
 end
 
 function PallyPower:PLAYER_REGEN_ENABLED()
-	if PP_IsPally then self:UpdateLayout() end
+	if self:IsBuffingClass() then self:UpdateLayout() end
 end
 
 function PallyPower:CanControl(name)

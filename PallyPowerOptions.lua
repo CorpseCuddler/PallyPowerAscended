@@ -20,7 +20,11 @@ local function InitOptions()
 		name = "Enable non-Paladin casting",
 		desc = "Allow the addon to cast non-Paladin buffs",
 		get = function() return PP.db.profile.enableNonPaladin end,
-		set = function(_, v) PP.db.profile.enableNonPaladin = v end,
+		set = function(_, v)
+			PP.db.profile.enableNonPaladin = v
+			PP.opt = PP.db.profile
+			PP:UpdateLayout()
+		end,
 		},
 
 		report = {
