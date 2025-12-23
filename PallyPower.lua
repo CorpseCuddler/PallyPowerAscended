@@ -273,6 +273,24 @@ local raid_units = {}
 local leaders = {}
 local roster = {}
 
+function PallyPower:NormalizeClassToken(class)
+	if type(class) == "number" then
+		return self:GetClassTokenByIndex(class)
+	end
+	if type(class) == "string" and class ~= "" then
+		return class
+	end
+	return nil
+end
+
+function PallyPower:GetClassTokens()
+	return self:GetClassOrder() or {}
+end
+
+function PallyPower:GetClassCount()
+	return #self:GetClassTokens()
+end
+
 do
 	table.insert(party_units, "player")
 	table.insert(party_units, "pet")
@@ -297,6 +315,7 @@ function PallyPower:OnInitialize()
 	if self.opt.enableNonPaladin == nil then
 		self.opt.enableNonPaladin = false
 	end
+	self:NormalizeAssignments()
 	self:ScanInventory()
 	self:CreateLayout()
 	if self.opt.skin then
@@ -316,9 +335,49 @@ function PallyPower:OnProfileEnable()
 	if self.opt.enableNonPaladin == nil then
 		self.opt.enableNonPaladin = false
 	end
+	self:NormalizeAssignments()
 	PallyPower:UpdateLayout()
 	--PallyPower:RFAssign(self.opt.rf)
 	--PallyPower:SealAssign(self.opt.seal)
+end
+
+function PallyPower:NormalizeAssignments()
+	for name, assignments in pairs(PallyPower_Assignments) do
+		for key, value in pairs(assignments) do
+			if type(key) == "number" then
+				local token = self:GetClassTokenByIndex(key)
+				if token then
+					assignments[token] = value
+				end
+				assignments[key] = nil
+			end
+		end
+	end
+
+	for name, classAssignments in pairs(PallyPower_NormalAssignments) do
+		for classKey, tnames in pairs(classAssignments) do
+			if type(classKey) == "number" then
+				local token = self:GetClassTokenByIndex(classKey)
+				if token then
+					classAssignments[token] = tnames
+				end
+				classAssignments[classKey] = nil
+			end
+		end
+	end
+
+	for _, set in pairs(self.opt.sets or {}) do
+		set.buffs = set.buffs or {}
+		for classKey, value in pairs(set.buffs) do
+			if type(classKey) == "number" then
+				local token = self:GetClassTokenByIndex(classKey)
+				if token then
+					set.buffs[token] = value
+				end
+				set.buffs[classKey] = nil
+			end
+		end
+	end
 end
 
 
@@ -345,9 +404,9 @@ end
 function PallyPower:OnDisable()
 	-- events
 	self.opt.disable = true
-	for i = 1, PALLYPOWER_MAXCLASSES do
-		classlist[i] = 0
-		classes[i] = {}
+	for _, classToken in self:IterateClassRegistry() do
+		classlist[classToken] = 0
+		classes[classToken] = {}
 	end
 	self:UpdateLayout()
 	self:UnbindKeys()
@@ -526,32 +585,32 @@ function PallyPowerPlayerButton_OnClick(btn, mouseBtn)
 	if InCombatLockdown() then return false end
 	local _, _, class, pnum = sfind(btn:GetName(), "PallyPowerConfigFrameClassGroup(.+)PlayerButton(.+)")
 	local pname = getglobal("PallyPowerConfigFrameClassGroup"..class.."PlayerButton"..pnum.."Text"):GetText()
-	class = tonumber(class)
-	PallyPowerGrid_NormalBlessingMenu(btn, mouseBtn, pname, class)
+	local classToken = PallyPower:GetClassTokenByIndex(tonumber(class))
+	PallyPowerGrid_NormalBlessingMenu(btn, mouseBtn, pname, classToken)
 end
 
 function PallyPowerPlayerButton_OnMouseWheel(btn, arg1)
 	if InCombatLockdown() then return false end
 	local _, _, class, pnum = sfind(btn:GetName(), "PallyPowerConfigFrameClassGroup(.+)PlayerButton(.+)")
 	local pname = getglobal("PallyPowerConfigFrameClassGroup"..class.."PlayerButton"..pnum.."Text"):GetText()
-	class = tonumber(class)
+	local classToken = PallyPower:GetClassTokenByIndex(tonumber(class))
 
-	PallyPower:PerformPlayerCycle(arg1, pname, class)
+	PallyPower:PerformPlayerCycle(arg1, pname, classToken)
 end
 
 function PallyPowerGridButton_OnClick(btn, mouseBtn)
 	if InCombatLockdown() then return false end
 	local _, _, pnum, class = sfind(btn:GetName(), "PallyPowerConfigFramePlayer(.+)Class(.+)")
 	pnum = pnum + 0
-	class = class + 0
+	local classToken = PallyPower:GetClassTokenByIndex(class + 0)
 	local pname = getglobal("PallyPowerConfigFramePlayer"..pnum.."Name"):GetText()
 	if not PallyPower:CanControl(pname) then return false end
 
 	if (mouseBtn == "RightButton") then
-		PallyPower_Assignments[pname][class] = 0
-		PallyPower:SendMessage("ASSIGN "..pname.." "..class.. " 0")
+		PallyPower_Assignments[pname][classToken] = 0
+		PallyPower:SendMessage("ASSIGN "..pname.." "..classToken.. " 0")
 	else
-		PallyPower:PerformCycle(pname, class)
+		PallyPower:PerformCycle(pname, classToken)
 	end
 end
 
@@ -559,14 +618,14 @@ function PallyPowerGridButton_OnMouseWheel(btn, arg1)
 	if InCombatLockdown() then return false end
 	local _, _, pnum, class = sfind(btn:GetName(), "PallyPowerConfigFramePlayer(.+)Class(.+)")
 	pnum = pnum + 0
-	class = class + 0
+	local classToken = PallyPower:GetClassTokenByIndex(class + 0)
 	local pname = getglobal("PallyPowerConfigFramePlayer"..pnum.."Name"):GetText()
 	if not PallyPower:CanControl(pname) then return false end
 
 	if (arg1==-1) then  --mouse wheel down
-		PallyPower:PerformCycle(pname, class)
+		PallyPower:PerformCycle(pname, classToken)
 	else
-		PallyPower:PerformCycleBackwards(pname, class)
+		PallyPower:PerformCycleBackwards(pname, classToken)
 	end
 end
 
@@ -595,17 +654,35 @@ end
 function PlayerButton_DragStop(frame)
 	if movingPlayerFrame then
 		frame:StopMovingOrSizing()
-		for i = 1, PALLYPOWER_MAXCLASSES do
+		local classTokens = PallyPower:GetClassTokens()
+		for i, classToken in ipairs(classTokens) do
 		    if MouseIsOver(getglobal("PallyPowerConfigFrameClassGroup"..i.."ClassButton")) then
 			local _, _, pclass, pnum = sfind(movingPlayerFrame:GetName(), "PallyPowerConfigFrameClassGroup(.+)PlayerButton(.+)")
 			pclass, pnum = tonumber(pclass), tonumber(pnum)
-			local unit = classes[pclass][pnum]
-			PallyPower:AssignPlayerAsClass(unit.name, pclass, i)
+			local pclassToken = PallyPower:GetClassTokenByIndex(pclass)
+			local unit = classes[pclassToken][pnum]
+			PallyPower:AssignPlayerAsClass(unit.name, pclassToken, classToken)
 		    end
 		end
 		frame:SetPoint(point, relativeTo, relativePoint, xOfs, yOfs)
 		frame:SetMovable(false)
 		movingPlayerFrame = nil
+	end
+end
+
+function PallyPower:EnsureConfigClassGroups(classCount)
+	for i = 1, classCount do
+		local frameName = "PallyPowerConfigFrameClassGroup"..i
+		local frame = _G[frameName]
+		if not frame then
+			frame = CreateFrame("Frame", frameName, PallyPowerConfigFrame, "ClassGroupTemplate")
+			if i == 1 then
+				frame:SetPoint("TOPLEFT", _G["PallyPowerConfigFrameAuraGroup1"], "TOPRIGHT", 2, 0)
+			else
+				local previous = _G["PallyPowerConfigFrameClassGroup"..(i - 1)]
+				frame:SetPoint("TOPLEFT", previous, "TOPRIGHT", 2, 0)
+			end
+		end
 	end
 end
 
@@ -616,20 +693,23 @@ function PallyPowerConfigGrid_Update()
 		local numPallys = 0
 		local numMaxClass = 0
 		local name, skills
-		for i = 1, PALLYPOWER_MAXCLASSES do
+		local classTokens = PallyPower:GetClassTokens()
+		PallyPower:EnsureConfigClassGroups(#classTokens)
+		for i, classToken in ipairs(classTokens) do
 			local fname = "PallyPowerConfigFrameClassGroup"..i
 			if movingPlayerFrame and MouseIsOver(getglobal(fname.."ClassButton")) then
 				getglobal(fname.."ClassButtonHighlight"):Show()
 			else
 				getglobal(fname.."ClassButtonHighlight"):Hide()
 			end
-			getglobal(fname.."ClassButtonIcon"):SetTexture(PallyPower.ClassIcons[i])
-			for j = 1, PALLYPOWER_MAXPERCLASS do
+			getglobal(fname.."ClassButtonIcon"):SetTexture(PallyPower:GetClassIcon(classToken))
+			local maxButtons = math.min(PallyPower:GetClassMaxButtons(classToken), PALLYPOWER_MAXPERCLASS)
+			for j = 1, maxButtons do
 				local pbnt = fname.."PlayerButton"..j
-				if classes[i] and classes[i][j] then
-					local unit = classes[i][j]
+				if classes[classToken] and classes[classToken][j] then
+					local unit = classes[classToken][j]
 					getglobal(pbnt.."Text"):SetText(unit.name)
-					local normal, greater = PallyPower:GetSpellID(i, unit.name)
+					local normal, greater = PallyPower:GetSpellID(classToken, unit.name)
 					local icon
 					if normal == greater and movingPlayerFrame == getglobal(pbnt) then
 						if normal == greater then
@@ -639,15 +719,18 @@ function PallyPowerConfigGrid_Update()
 							getglobal(pbnt.."Icon"):SetTexture("")
 						end
 					else
-						getglobal(pbnt.."Icon"):SetTexture("")
+					getglobal(pbnt.."Icon"):SetTexture("")
 					end
 					getglobal(pbnt):Show()
 				else
 					getglobal(pbnt):Hide()
 				end
 			end
-			if classlist[i] then
-				numMaxClass = math.max(numMaxClass, classlist[i])
+			for j = maxButtons + 1, PALLYPOWER_MAXPERCLASS do
+				getglobal(fname.."PlayerButton"..j):Hide()
+			end
+			if classlist[classToken] then
+				numMaxClass = math.max(numMaxClass, classlist[classToken])
 			end
 		end
 		PallyPowerConfigFrame:SetScale(PallyPower.opt.configscale)
@@ -733,10 +816,11 @@ function PallyPowerConfigGrid_Update()
 				getglobal(fname.."Aura1Icon"):SetTexture(nil)
 			end
 			
-			for id = 1, PALLYPOWER_MAXCLASSES do
-				if BuffInfo and BuffInfo[id] then
+			local classTokens = PallyPower:GetClassTokens()
+			for id, classToken in ipairs(classTokens) do
+				if BuffInfo and BuffInfo[classToken] then
 					local blessingIcons, normalIcons = PallyPower:GetBlessingIcons(name)
-					getglobal(fname.."Class"..id.."Icon"):SetTexture(blessingIcons[BuffInfo[id]])
+					getglobal(fname.."Class"..id.."Icon"):SetTexture(blessingIcons[BuffInfo[classToken]])
 				else
 					getglobal(fname.."Class"..id.."Icon"):SetTexture(nil)
 				end
@@ -747,7 +831,8 @@ function PallyPowerConfigGrid_Update()
 		end
 		PallyPowerConfigFrame:SetHeight(14 + 24 + 56 + (numPallys * 80) + 22 + 13 * numMaxClass)
 		getglobal("PallyPowerConfigFramePlayer1"):SetPoint("TOPLEFT", 8, -80 - 13 * numMaxClass)
-		for i = 1, PALLYPOWER_MAXCLASSES do
+		local classTokens = PallyPower:GetClassTokens()
+		for i = 1, #classTokens do
 			getglobal("PallyPowerConfigFrameClassGroup" .. i .. "Line"):SetHeight(56 + 13 * numMaxClass)
 		end
 		getglobal("PallyPowerConfigFrameAuraGroup1Line"):SetHeight(56 + 13 * numMaxClass)
@@ -784,8 +869,8 @@ function PallyPower:Report(type)
 				for i = 1, PallyPower.BLESSINGS_COUNT - 1 do
 					list[i] = 0
 				end
-				for id = 1, PALLYPOWER_MAXCLASSES do
-					local bid = PallyPower_Assignments[name][id]
+				for _, classToken in ipairs(PallyPower:GetClassTokens()) do
+					local bid = PallyPower_Assignments[name][classToken]
 					if bid and bid > 0 then
 						list[bid] = list[bid] + 1
 					end
@@ -817,10 +902,12 @@ end
 
 function PallyPower:PerformCycle(name, class, skipzero)
 	self:Debug("PerformCycle")
+	class = self:NormalizeClassToken(class)
+	if not class then return end
 	local shift = IsShiftKeyDown()
 	local spells, gspells, maxblessings = self:GetSpellTables(name)
 
-	if shift then class = 4 end
+	if shift then class = self:GetClassTokenByIndex(4) end
 
 	if not PallyPower_Assignments[name] then
 		PallyPower_Assignments[name] = { }
@@ -853,8 +940,8 @@ function PallyPower:PerformCycle(name, class, skipzero)
 
 	self:Debug("PerformCycle: "..cur)
 	if shift then
-		for test = 1, PALLYPOWER_MAXCLASSES do
-			PallyPower_Assignments[name][test] = cur
+		for _, classToken in ipairs(PallyPower:GetClassTokens()) do
+			PallyPower_Assignments[name][classToken] = cur
 		end
 		PallyPower:SendMessage("MASSIGN "..name.." "..cur)
 	else
@@ -865,10 +952,12 @@ end
 
 function PallyPower:PerformCycleBackwards(name, class, skipzero)
 	self:Debug("PerformCycleBackwards")
+	class = self:NormalizeClassToken(class)
+	if not class then return end
 	local shift = IsShiftKeyDown()
 	local spells, gspells, maxblessings = self:GetSpellTables(name)
 
-	if shift then class = 4 end
+	if shift then class = self:GetClassTokenByIndex(4) end
 
 	if not PallyPower_Assignments[name] then
 		PallyPower_Assignments[name] = { }
@@ -891,8 +980,8 @@ function PallyPower:PerformCycleBackwards(name, class, skipzero)
 	end
 
 	if shift then
-		for test = 1, PALLYPOWER_MAXCLASSES do
-			PallyPower_Assignments[name][test] = cur
+		for _, classToken in ipairs(PallyPower:GetClassTokens()) do
+			PallyPower_Assignments[name][classToken] = cur
 		end
 		PallyPower:SendMessage("MASSIGN "..name.." "..cur)
 	else
@@ -902,6 +991,8 @@ function PallyPower:PerformCycleBackwards(name, class, skipzero)
 end
 
 function PallyPower:PerformPlayerCycle(arg1, pname, class)
+	class = PallyPower:NormalizeClassToken(class)
+	if not class then return end
 	local blessing = 0
 	local playername = PallyPower.player
 	if PallyPower_NormalAssignments[playername] and PallyPower_NormalAssignments[playername][class] and PallyPower_NormalAssignments[playername][class][pname] then
@@ -921,6 +1012,9 @@ function PallyPower:PerformPlayerCycle(arg1, pname, class)
 end
 
 function PallyPower:AssignPlayerAsClass(pname, pclass, tclass)
+	pclass = self:NormalizeClassToken(pclass)
+	tclass = self:NormalizeClassToken(tclass)
+	if not pclass or not tclass then return end
 	local greater, target, targetsorted, freepallies =  {}, {}, {}, {}
 	-- Find blessings we want
 	for pally, classes in pairs(PallyPower_Assignments) do
@@ -991,13 +1085,17 @@ function PallyPower:CanBuff(name, test)
 end
 
 function PallyPower:NeedsBuff(class, test, playerName)
+	local classToken = self:NormalizeClassToken(class)
+	if not classToken then
+		return true
+	end
 	if test==PallyPower.BLESSINGS_COUNT or test==0 then
 		return true
 	end
 
 	if self.opt.smartbuffs then
 		-- no wisdom for warriors, rogues and DKs
-		if (class == 1 or class == 2 or class == 10) and test == 1 then
+		if (classToken == "WARRIOR" or classToken == "ROGUE" or classToken == "DEATHKNIGHT") and test == 1 then
 			return false
 		end
 		-- no salv for warriors except normal blessings
@@ -1005,7 +1103,7 @@ function PallyPower:NeedsBuff(class, test, playerName)
 		--	return false
 		--end
 		-- no might for casters
-		if (class == 3 or class == 7 or class == 8) and test == 2 then
+		if (classToken == "PRIEST" or classToken == "MAGE" or classToken == "WARLOCK") and test == 2 then
 			return false
 		end
 	end
@@ -1025,7 +1123,7 @@ function PallyPower:NeedsBuff(class, test, playerName)
 	end
 
 	for name, skills in pairs(PallyPower_Assignments) do
-		if (AllPallys[name]) and ((skills[class]) and (skills[class]==test)) then 
+		if (AllPallys[name]) and ((skills[classToken]) and (skills[classToken]==test)) then 
 			return false 
 		end
 	end
@@ -1255,18 +1353,18 @@ function PallyPower:SendSelf()
 
 	if not PallyPower_Assignments[self.player] then
 		PallyPower_Assignments[self.player] = {}
-		for i = 1, PALLYPOWER_MAXCLASSES do
-			PallyPower_Assignments[self.player][i] = 0
+		for _, classToken in ipairs(self:GetClassTokens()) do
+			PallyPower_Assignments[self.player][classToken] = 0
 		end
 	end
 
 	local BuffInfo = PallyPower_Assignments[self.player]
 
-	for i = 1, PALLYPOWER_MAXCLASSES do
-		if not BuffInfo[i] or BuffInfo[i] == 0 then
+	for _, classToken in ipairs(self:GetClassTokens()) do
+		if not BuffInfo[classToken] or BuffInfo[classToken] == 0 then
 			s = s .. "n"
 		else
-			s = s .. BuffInfo[i]
+			s = s .. BuffInfo[classToken]
 		end
 	end
 
@@ -1361,9 +1459,9 @@ function PallyPower:ACTIVE_TALENT_GROUP_CHANGED()
 		self.opt.sets[old].rf = self.opt.rf
 		self.opt.rf = self.opt.sets[new].rf
 			
-		for i = 1, PALLYPOWER_MAXCLASSES do
-			self.opt.sets[old].buffs[i]=PallyPower_Assignments[self.player][i]
-			PallyPower_Assignments[self.player][i] = self.opt.sets[new].buffs[i]
+		for _, classToken in ipairs(self:GetClassTokens()) do
+			self.opt.sets[old].buffs[classToken] = PallyPower_Assignments[self.player][classToken]
+			PallyPower_Assignments[self.player][classToken] = self.opt.sets[new].buffs[classToken] or 0
 		end
 		PallyPower:UpdateLayout()
 	end
@@ -1420,8 +1518,8 @@ function PallyPower:ClearAssignments(sender)
 	for name, skills in pairs(PallyPower_Assignments) do
 		if leader or name == sender then
 			--self:Print("Clearing: %s", name)
-			for i = 1, PALLYPOWER_MAXCLASSES do
-				PallyPower_Assignments[name][i] = 0
+			for _, classToken in ipairs(self:GetClassTokens()) do
+				PallyPower_Assignments[name][classToken] = 0
 			end
 		end
 	end
@@ -1490,10 +1588,11 @@ function PallyPower:ParseMessage(sender, msg)
 		end
 		-- sort here
 		if assign then
-			for i = 1, PALLYPOWER_MAXCLASSES do
+			local classTokens = self:GetClassTokens()
+			for i = 1, math.min(#classTokens, assign:len()) do
 				tmp =ssub(assign, i, i)
 				if tmp == "n" or tmp == "" then tmp = 0 end
-				PallyPower_Assignments[sender][i] = tmp + 0
+				PallyPower_Assignments[sender][classTokens[i]] = tmp + 0
 			end
 		end
 	end
@@ -1502,20 +1601,26 @@ function PallyPower:ParseMessage(sender, msg)
 		_, _, name, class, skill = sfind(msg, "^ASSIGN (.*) (.*) (.*)")
 		if name == sender and not (leader or PallyPower.opt.freeassign) then return false end
 		if not PallyPower_Assignments[name] then PallyPower_Assignments[name] = {} end
-		class = class + 0
+		local classToken = self:NormalizeClassToken(tonumber(class) or class)
 		skill = skill + 0
-		PallyPower_Assignments[name][class] = skill
+		if classToken then
+			PallyPower_Assignments[name][classToken] = skill
+		end
 	end
 
 	if sfind(msg, "^NASSIGN") then
 		for pname, class, tname, skill in string.gmatch(ssub(msg, 9), "([^@]*) ([^@]*) ([^@]*) ([^@]*)") do
 			if pname == sender and not (leader or PallyPower.opt.freeassign) then return end
 			if not PallyPower_NormalAssignments[pname] then PallyPower_NormalAssignments[pname] = {} end
-			class = class + 0
-			if not PallyPower_NormalAssignments[pname][class] then PallyPower_NormalAssignments[pname][class] = {} end
+			local classToken = self:NormalizeClassToken(tonumber(class) or class)
+			if classToken and not PallyPower_NormalAssignments[pname][classToken] then
+				PallyPower_NormalAssignments[pname][classToken] = {}
+			end
 			skill = skill + 0
 			if skill == 0 then skill = nil end
-			PallyPower_NormalAssignments[pname][class][tname] = skill
+			if classToken then
+				PallyPower_NormalAssignments[pname][classToken][tname] = skill
+			end
 		end
 	end
 
@@ -1524,8 +1629,8 @@ function PallyPower:ParseMessage(sender, msg)
 		if name == sender and not (leader or PallyPower.opt.freeassign) then return false end
 		if not PallyPower_Assignments[name] then PallyPower_Assignments[name] = {} end
 		skill = skill + 0
-		for i = 1, PALLYPOWER_MAXCLASSES do
-			PallyPower_Assignments[name][i] = skill
+		for _, classToken in ipairs(self:GetClassTokens()) do
+			PallyPower_Assignments[name][classToken] = skill
 		end
 	end
 
@@ -1592,12 +1697,7 @@ function PallyPower:FormatTime(time)
 end
 
 function PallyPower:GetClassID(class)
-	for id, name in pairs(self.ClassID) do
-		if (name==class) then
-			return id
-		end
-	end
-	return -1
+	return self:GetClassIndex(class) or -1
 end
 
 function PallyPower:ShouldIDisplay()
@@ -1632,9 +1732,9 @@ function PallyPower:UpdateRoster()
 	local skip = self.opt.extras
 	local smartpets = self.opt.smartpets
 
-	for i = 1, PALLYPOWER_MAXCLASSES do
-		classlist[i] = 0
-		classes[i] = {}
+	for _, classToken in self:IterateClassRegistry() do
+		classlist[classToken] = 0
+		classes[classToken] = {}
 	end
 	
 	if num > 0 then
@@ -1717,15 +1817,17 @@ function PallyPower:UpdateRoster()
 				
 					tinsert(roster, tmp)
 				
-					for i = 1, PALLYPOWER_MAXCLASSES do
-						if tmp.class == self.ClassID[i] then
-							tmp.visible = false
-							tmp.hasbuff = false
-							tmp.specialbuff = false
-							tmp.dead = false
-							classlist[i] = classlist[i] + 1
-							tinsert(classes[i], tmp)
+					local classToken = self:NormalizeClassToken(tmp.class)
+					if classToken and self:GetClassInfo(classToken) then
+						tmp.visible = false
+						tmp.hasbuff = false
+						tmp.specialbuff = false
+						tmp.dead = false
+						classlist[classToken] = (classlist[classToken] or 0) + 1
+						if not classes[classToken] then
+							classes[classToken] = {}
 						end
+						tinsert(classes[classToken], tmp)
 					end
 				end
 			end
@@ -1742,13 +1844,13 @@ function PallyPower:UpdateRoster()
 	self:Debug("Update Roster - end")
 end
 
-function PallyPower:ScanClass(classID)
-	local class = classes[classID]
+function PallyPower:ScanClass(classToken)
+	local class = classes[classToken] or {}
 	local spells, gspells = self:GetSpellTables(self.player)
 
 	for playerID, unit in pairs(class) do
 		if unit.unitid then
-			local spellID, gspellID = self:GetSpellID(classID, unit.name)
+			local spellID, gspellID = self:GetSpellID(classToken, unit.name)
 			local spell = spells[spellID]
 			local spell2 = gspells[spellID]
 			local gspell = gspells[gspellID]
@@ -1763,6 +1865,138 @@ function PallyPower:ScanClass(classID)
 			unit.dead = UnitIsDeadOrGhost(unit.unitid)
 			unit.hasbuff = self:IsBuffActive(spell, spell2, unit.unitid)
 			unit.specialbuff = spellID == gspellID
+		end
+	end
+end
+
+function PallyPower:EnsureClassButtons()
+	self.classButtons = self.classButtons or {}
+	self.playerButtons = self.playerButtons or {}
+
+	local classTokens = self:GetClassTokens()
+
+	-- Initialize the childs table in autoButton's secure environment
+	SecureHandlerExecute(self.autoButton, [[childs = newtable()]])
+
+	for cbNum, classToken in ipairs(classTokens) do
+		if not self.classButtons[cbNum] then
+			local cButton = CreateFrame(
+				"Button",
+				"PallyPowerC" .. cbNum,
+				self.Header,
+				"SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerStateTemplate, SecureActionButtonTemplate, PallyPowerButtonTemplate"
+			)
+			cButton:SetScript("PreClick", function(self, button) PallyPower:ButtonPreClick(self, button) end)
+
+			SecureHandlerExecute(cButton, [[others = newtable()]])
+			SecureHandlerExecute(cButton, [[childs = newtable()]])
+			cButton:SetAttribute("_onenter", [[  
+	                                          for _, other in ipairs(others) do  
+	                                             other:SetAttribute("state-inactive", self)  
+	                                          end  
+	                                          local leadChild;  
+	                                          for _, child in ipairs(childs) do  
+	                                              if child:GetAttribute("Display") == 1 then  
+	                                                  child:Show()  
+	                                                  if (leadChild) then  
+	                                                      leadChild:AddToAutoHide(child)   
+	                                                  else  
+	                                                      leadChild = child  
+	                                                      leadChild:RegisterAutoHide(2)   
+	                                                  end  
+	                                              end  
+	                                          end  
+	                                          if (leadChild) then  
+	                                              leadChild:AddToAutoHide(self)  
+	                                          end  
+	                                  ]]) 
+
+			cButton:SetAttribute("_onstate-inactive", [[
+													childs[1]:Hide()
+												 ]]) 
+			cButton:RegisterForClicks("LeftButtonDown", "RightButtonDown")
+			cButton:EnableMouseWheel(1)
+			self.classButtons[cbNum] = cButton
+		end
+
+		local cButton = self.classButtons[cbNum]
+		SecureHandlerSetFrameRef(self.autoButton, "child", cButton)
+		SecureHandlerExecute(self.autoButton, [[
+										local child = self:GetFrameRef("child")
+										childs[#childs+1] = child;
+									  ]])
+
+		self.playerButtons[cbNum] = self.playerButtons[cbNum] or {}
+		local pButtons = self.playerButtons[cbNum]
+		local maxButtons = math.min(self:GetClassMaxButtons(classToken), PALLYPOWER_MAXPERCLASS)
+		local leadChild
+
+		for pbNum = 1, maxButtons do
+			if not pButtons[pbNum] then
+				local pButton = CreateFrame(
+					"Button",
+					"PallyPowerC".. cbNum .. "P" .. pbNum,
+					UIParent,
+					"SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate, SecureActionButtonTemplate, PallyPowerPopupTemplate"
+				)
+				pButton:SetParent(self.classButtons[cbNum])
+
+				SecureHandlerSetFrameRef(self.classButtons[cbNum], "child", pButton)
+				SecureHandlerExecute(self.classButtons[cbNum], [[
+												local child = self:GetFrameRef("child")
+												childs[#childs+1] = child;
+											  ]])
+				if pbNum == 1 then
+					SecureHandlerExecute(pButton, [[siblings = newtable()]]);
+					pButton:SetAttribute("_onhide", [[
+												  for _, sibling in ipairs(siblings) do
+													sibling:Hide()
+												  end]])
+					leadChild = pButton
+				else
+					SecureHandlerSetFrameRef(leadChild, "sibling", pButton)
+					SecureHandlerExecute(leadChild, [[
+												local sibling = self:GetFrameRef("sibling")
+												siblings[#siblings+1] = sibling;
+											  ]])
+				end
+
+				pButton:RegisterForClicks("LeftButtonDown", "RightButtonDown")
+				pButton:EnableMouseWheel(1)
+				pButton:Hide();
+				pButtons[pbNum] = pButton
+			end
+		end
+	end
+
+	self:RebuildClassButtonRelations()
+end
+
+function PallyPower:RebuildClassButtonRelations()
+	for _, cButton in ipairs(self.classButtons or {}) do
+		SecureHandlerExecute(cButton, [[others = newtable()]])
+	end
+
+	for cbNum, cButton in ipairs(self.classButtons or {}) do
+		for cbOther, _ in ipairs(self.classButtons or {}) do
+			if (cbOther == cbNum) then
+				local oButton = self.classButtons[cbOther]
+ 				SecureHandlerSetFrameRef(cButton, "other", oButton)
+	        	SecureHandlerExecute(cButton, [[
+												local other = self:GetFrameRef("other")
+												others[#others+1] = other;
+											  ]]) 
+			end
+		end
+	end
+end
+
+function PallyPower:OnClassRegistryUpdated()
+	self:NormalizeAssignments()
+	if self.Header and self.autoButton then
+		self:EnsureClassButtons()
+		if self.opt then
+			self:UpdateLayout()
 		end
 	end
 end
@@ -1784,103 +2018,7 @@ function PallyPower:CreateLayout()
 
 	self.classButtons = {}
 	self.playerButtons = {}
-
--- Initialize the childs table in autoButton's secure environment
-SecureHandlerExecute(self.autoButton, [[childs = newtable()]])
-
-for cbNum = 1, PALLYPOWER_MAXCLASSES do
--- create class buttons
-	local cButton = CreateFrame("Button", "PallyPowerC" .. cbNum, self.Header, "SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerStateTemplate, SecureActionButtonTemplate, PallyPowerButtonTemplate")
-	cButton:SetScript("PreClick", function(self, button) PallyPower:ButtonPreClick(self, button) end)
-	--cButton:SetID(cbNum)
-	-- new show/hide functionality 
-	SecureHandlerSetFrameRef(self.autoButton, "child", cButton)
-	SecureHandlerExecute(self.autoButton, [[
-											local child = self:GetFrameRef("child")
-											childs[#childs+1] = child;
-										  ]])
-										  
-								  
-		SecureHandlerExecute(cButton, [[others = newtable()]])
-		SecureHandlerExecute(cButton, [[childs = newtable()]])
-	    cButton:SetAttribute("_onenter", [[  
-	                                          for _, other in ipairs(others) do  
-	                                             other:SetAttribute("state-inactive", self)  
-	                                          end  
-	                                          local leadChild;  
-	                                          for _, child in ipairs(childs) do  
-	                                              if child:GetAttribute("Display") == 1 then  
-	                                                  child:Show()  
-	                                                  if (leadChild) then  
-	                                                      leadChild:AddToAutoHide(child)   
-	                                                  else  
-	                                                      leadChild = child  
-	                                                      leadChild:RegisterAutoHide(2)   
-	                                                  end  
-	                                              end  
-	                                          end  
-	                                          if (leadChild) then  
-	                                              leadChild:AddToAutoHide(self)  
-	                                          end  
-	                                  ]]) 
-	 
-	    cButton:SetAttribute("_onstate-inactive", [[
-													childs[1]:Hide()
-												 ]]) 
-		cButton:RegisterForClicks("LeftButtonDown", "RightButtonDown")
-		cButton:EnableMouseWheel(1)
-        self.classButtons[cbNum] = cButton
-
-		-- create player buttons
-		self.playerButtons[cbNum] = {}
-		local pButtons = self.playerButtons[cbNum]
-        local leadChild
-		for pbNum = 1, PALLYPOWER_MAXPERCLASS do -- create player buttons for each class
-			local pButton = CreateFrame("Button","PallyPowerC".. cbNum .. "P" .. pbNum, UIParent, "SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate, SecureActionButtonTemplate, PallyPowerPopupTemplate")
-			--pButton:SetID(cbNum)
-			pButton:SetParent(cButton)
-			  
-			SecureHandlerSetFrameRef(cButton, "child", pButton)
-	        SecureHandlerExecute(cButton, [[
-												local child = self:GetFrameRef("child")
-												childs[#childs+1] = child;
-											  ]])
-			if pbNum == 1 then
-				SecureHandlerExecute(pButton, [[siblings = newtable()]]);
-				pButton:SetAttribute("_onhide", [[
-												  for _, sibling in ipairs(siblings) do
-													sibling:Hide()
-												  end]])											
-				leadChild = pButton
-			else
-				SecureHandlerSetFrameRef(leadChild, "sibling", pButton)
-	        	SecureHandlerExecute(leadChild, [[
-												local sibling = self:GetFrameRef("sibling")
-												siblings[#siblings+1] = sibling;
-											  ]])
-			end
-			
-			pButton:RegisterForClicks("LeftButtonDown", "RightButtonDown")
-			pButton:EnableMouseWheel(1)
-			pButton:Hide();
-			pButtons[pbNum] = pButton
-		end -- by pbNum
-	end -- by classIndex
-
-	for cbNum = 1, PALLYPOWER_MAXCLASSES do
-		local cButton = self.classButtons[cbNum];
-		for cbOther = 1, PALLYPOWER_MAXCLASSES do
-			if (cbOther == cbNum) then
-				local oButton = self.classButtons[cbOther];
- 				SecureHandlerSetFrameRef(cButton, "other", oButton)
-	        	--SecureHandlerExecute(cButton, [[tinsert(others, self:GetAttribute('frameref-other'));]]);  
-	        	SecureHandlerExecute(cButton, [[
-												local other = self:GetFrameRef("other")
-												others[#others+1] = other;
-											  ]]) 
-			end
-		end
-	end
+	self:EnsureClassButtons()
 
 	self:UpdateLayout()
 	self:Debug("Create Layout -- end")
@@ -1889,8 +2027,8 @@ end
 function PallyPower:CountClasses()
 	local val = 0
 	if not classes then return 0 end
-	for i = 1, PALLYPOWER_MAXCLASSES do
-		if classlist[i] and classlist[i] > 0 then
+	for _, classToken in ipairs(self:GetClassTokens()) do
+		if classlist[classToken] and classlist[classToken] > 0 then
 			val = val + 1
 		end
 	end
@@ -1900,6 +2038,8 @@ end
 function PallyPower:UpdateLayout()
 	self:Debug("Update Layout -- begin")
 	if InCombatLockdown() then return false end
+
+	self:EnsureClassButtons()
 	
 	PallyPowerFrame:SetScale(self.opt.buffscale)
 	
@@ -1940,7 +2080,8 @@ function PallyPower:UpdateLayout()
 		end
 
 
-		for cbNum = 1, PALLYPOWER_MAXCLASSES do -- position class buttons
+		local classTokens = self:GetClassTokens()
+		for cbNum, classToken in ipairs(classTokens) do -- position class buttons
 			local cButton = self.classButtons[cbNum]
 			-- set visual attributes
 			self:SetButton("PallyPowerC" .. cbNum)
@@ -1952,7 +2093,8 @@ function PallyPower:UpdateLayout()
 
 			local pButtons = self.playerButtons[cbNum]
 			if pButtons then
-				for pbNum = 1, PALLYPOWER_MAXPERCLASS do
+				local maxButtons = math.min(self:GetClassMaxButtons(classToken), PALLYPOWER_MAXPERCLASS)
+				for pbNum = 1, maxButtons do
 					local pButton = pButtons[pbNum]
 					if pButton then
 						self:SetPButton("PallyPowerC".. cbNum .. "P" .. pbNum)
@@ -2053,7 +2195,9 @@ function PallyPower:UpdateLayout()
 			return self:UpdateLayout()
 		end
 		
-		for cbNum = 1, PALLYPOWER_MAXCLASSES do -- position class buttons
+		local classTokens = self:GetClassTokens()
+		for cbNum, classToken in ipairs(classTokens) do -- position class buttons
+			if not layout.c[cbNum] then break end
 			local cx = layout.c[cbNum].x
 			local cy = layout.c[cbNum].y
 			local cButton = self.classButtons[cbNum]
@@ -2067,9 +2211,11 @@ function PallyPower:UpdateLayout()
 
 			local pButtons = self.playerButtons[cbNum]
 				if pButtons then
-					for pbNum = 1, PALLYPOWER_MAXPERCLASS do
+					local maxButtons = math.min(self:GetClassMaxButtons(classToken), PALLYPOWER_MAXPERCLASS)
+					for pbNum = 1, maxButtons do
 						local pButton = pButtons[pbNum]
 						if pButton then
+							if not layout.c[cbNum].p[pbNum] then break end
 							local px = layout.c[cbNum].p[pbNum].x
 							local py = layout.c[cbNum].p[pbNum].y
 							self:SetPButton("PallyPowerC".. cbNum .. "P" .. pbNum)
@@ -2135,12 +2281,13 @@ function PallyPower:UpdateLayout()
 	end
 	
 	local cbNum = 0
-	for classIndex = 1, PALLYPOWER_MAXCLASSES do
-	    local _, gspellID = PallyPower:GetSpellID(classIndex)
+	local classTokens = self:GetClassTokens()
+	for _, classToken in ipairs(classTokens) do
+	    local _, gspellID = PallyPower:GetSpellID(classToken)
 
-    if classlist[classIndex]
-       and classlist[classIndex] == 0
-       and (gspellID == 0 or PallyPower:NormalBlessingCount(classIndex) > 0) then
+    if classlist[classToken]
+       and classlist[classToken] == 0
+       and (gspellID == 0 or PallyPower:NormalBlessingCount(classToken) > 0) then
 
         cbNum = cbNum + 1
         local cButton = self.classButtons[cbNum]
@@ -2151,28 +2298,29 @@ function PallyPower:UpdateLayout()
             end
 
             cButton:SetAttribute("Display", 1)
-            cButton:SetAttribute("classID", classIndex)
+            cButton:SetAttribute("classToken", classToken)
             cButton:SetAttribute("type1", "spell")
             cButton:SetAttribute("type2", "spell")
         end
 
         local pButtons = self.playerButtons[cbNum]
         if pButtons then
-            for pbNum = 1, math.min(classlist[classIndex], PALLYPOWER_MAXPERCLASS) do
+			local maxButtons = math.min(classlist[classToken], self:GetClassMaxButtons(classToken), PALLYPOWER_MAXPERCLASS)
+            for pbNum = 1, maxButtons do
                 local pButton = pButtons[pbNum]
                 if not pButton then break end
 
                 pButton:SetAttribute("Display", self.opt.display.hidePlayerButtons and 0 or 1)
-                pButton:SetAttribute("classID", classIndex)
+                pButton:SetAttribute("classToken", classToken)
                 pButton:SetAttribute("playerID", pbNum)
             end
 
-            for pbNum = classlist[classIndex] + 1, PALLYPOWER_MAXPERCLASS do
+            for pbNum = maxButtons + 1, PALLYPOWER_MAXPERCLASS do
                 local pButton = pButtons[pbNum]
                 if not pButton then break end
 
                 pButton:SetAttribute("Display", 0)
-                pButton:SetAttribute("classID", 0)
+                pButton:SetAttribute("classToken", nil)
                 pButton:SetAttribute("playerID", 0)
             end
         end
@@ -2180,18 +2328,24 @@ function PallyPower:UpdateLayout()
 end
 
 	cbNum = cbNum + 1
-	for i = cbNum, PALLYPOWER_MAXCLASSES do
+	for i = cbNum, #self.classButtons do
 		local cButton = self.classButtons[i]
-		cButton:SetAttribute("Display", 0)
-		cButton:SetAttribute("classID", 0)
-		cButton:Hide()
-		local pButtons = self.playerButtons[cbNum]
-		for pbNum = 1, PALLYPOWER_MAXPERCLASS do
-			local pButton = pButtons[pbNum]
-			pButton:SetAttribute("Display", 0)
-			pButton:SetAttribute("classID", 0)
-			pButton:SetAttribute("playerID", 0)
-			pButton:Hide()
+		if cButton then
+			cButton:SetAttribute("Display", 0)
+			cButton:SetAttribute("classToken", nil)
+			cButton:Hide()
+		end
+		local pButtons = self.playerButtons[i]
+		if pButtons then
+			for pbNum = 1, PALLYPOWER_MAXPERCLASS do
+				local pButton = pButtons[pbNum]
+				if pButton then
+					pButton:SetAttribute("Display", 0)
+					pButton:SetAttribute("classToken", nil)
+					pButton:SetAttribute("playerID", 0)
+					pButton:Hide()
+				end
+			end
 		end
 	end
 	self:ButtonsUpdate()
@@ -2256,8 +2410,8 @@ function PallyPower:SetPButton(baseName)
 	end
 end
 
-function PallyPower:UpdateButton(button, baseName, classID)
---    self:Print("Update Button: %s, Class: %s", baseName, classID)
+function PallyPower:UpdateButton(button, baseName, classToken)
+--    self:Print("Update Button: %s, Class: %s", baseName, classToken)
 	local button = _G[baseName]
 	local classIcon = _G[baseName.."ClassIcon"]
 	local buffIcon = _G[baseName.."BuffIcon"]
@@ -2270,7 +2424,8 @@ function PallyPower:UpdateButton(button, baseName, classID)
 	local nhave = 0
 	local ndead = 0
 	--self:Print("Scaninfo: %s", PP_ScanInfo[classID])
-	for playerID, unit in pairs(classes[classID]) do
+	local classUnits = classes[classToken] or {}
+	for playerID, unit in pairs(classUnits) do
 		if unit.visible then
 			if not unit.hasbuff then
 				if unit.specialbuff then
@@ -2289,9 +2444,9 @@ function PallyPower:UpdateButton(button, baseName, classID)
 			ndead = ndead + 1
 		end
 	end
-	classIcon:SetTexture(self.ClassIcons[classID])
+	classIcon:SetTexture(self:GetClassIcon(classToken))
 	classIcon:SetVertexColor(1, 1, 1)
-	local _, gspellID = PallyPower:GetSpellID(classID)
+	local _, gspellID = PallyPower:GetSpellID(classToken)
 	local blessingIcons, normalIcons = self:GetBlessingIcons(self.player)
 	buffIcon:SetTexture(blessingIcons[gspellID])
 
@@ -2301,7 +2456,7 @@ function PallyPower:UpdateButton(button, baseName, classID)
 		buffIcon:SetVertexColor(1, 1, 1)
 	end
 
-	local classExpire, classDuration, specialExpire, specialDuration = self:GetBuffExpiration(classID)
+	local classExpire, classDuration, specialExpire, specialDuration = self:GetBuffExpiration(classToken)
 	time:SetText(self:FormatTime(classExpire))
 	time:SetTextColor(self:GetSeverityColor(classExpire and classDuration and (classExpire/classDuration) or 0))
 	time2:SetText(self:FormatTime(specialExpire))
@@ -2335,15 +2490,15 @@ function PallyPower:GetSeverityColor(percent)
 	end
 end
 
-function PallyPower:GetBuffExpiration(classID)
-	local class = classes[classID]
+function PallyPower:GetBuffExpiration(classToken)
+	local class = classes[classToken] or {}
 	local classExpire, classDuration, specialExpire, specialDuration = 9999, 9999, 9999, 9999
 	local spells, gspells = self:GetSpellTables(self.player)
 	
 	for playerID, unit in pairs(class) do
 		if unit.unitid then
 			local j = 1
-			local spellID, gspellID = self:GetSpellID(classID, unit.name)
+			local spellID, gspellID = self:GetSpellID(classToken, unit.name)
 			local spell = spells[spellID]
 			local gspell = gspells[gspellID]
 			local buffName, _, _, _, _, buffDuration, buffExpire = UnitBuff(unit.unitid, j)
@@ -2400,8 +2555,8 @@ function PallyPower:GetSealExpiration()
 	return sealExpire, sealDuration
 end
 
-function PallyPower:UpdatePButton(button, baseName, classID, playerID)
-	--self:Print("Update PButton: %s, Class: %s, Player: %s", baseName, classID, playerID)
+function PallyPower:UpdatePButton(button, baseName, classToken, playerID)
+	--self:Print("Update PButton: %s, Class: %s, Player: %s", baseName, classToken, playerID)
 	local button = _G[baseName]
 	local buffIcon = _G[baseName.."BuffIcon"]
 	local rng  = _G[baseName.."Rng"]
@@ -2409,7 +2564,7 @@ function PallyPower:UpdatePButton(button, baseName, classID, playerID)
 	local name = _G[baseName.."Name"]
 	local time = _G[baseName.."Time"]
 
-	local unit = classes[classID][playerID]
+	local unit = (classes[classToken] or {})[playerID]
 	if unit then
 		local nneed = 0
 		local nspecial = 0
@@ -2432,7 +2587,7 @@ function PallyPower:UpdatePButton(button, baseName, classID, playerID)
 			ndead = 1
 		end
 
-		local spellID, gspellID = self:GetSpellID(classID, unit.name)
+		local spellID, gspellID = self:GetSpellID(classToken, unit.name)
 		local blessingIcons, normalIcons = self:GetBlessingIcons(self.player)
 		buffIcon:SetTexture(blessingIcons[spellID])
 		buffIcon:SetVertexColor(1, 1, 1)
@@ -2498,13 +2653,13 @@ function PallyPower:ButtonsUpdate()
 	local minClassExpire, minClassDuration, minSpecialExpire, minSpecialDuration, sumnhave, sumnneed, sumnspecial = 9999, 9999, 9999, 9999, 0, 0, 0
 	local spells, gspells = self:GetSpellTables(self.player)
 	
-	for cbNum = 1, PALLYPOWER_MAXCLASSES do -- scan classes and if populated then assign textures, etc
+	for cbNum = 1, #self.classButtons do -- scan classes and if populated then assign textures, etc
 		local cButton = self.classButtons[cbNum]
-		local classIndex = cButton:GetAttribute("classID")
-		if classIndex > 0 then
-			self:ScanClass(classIndex) -- scanning for in-range and buffs
+		local classToken = cButton:GetAttribute("classToken")
+		if classToken then
+			self:ScanClass(classToken) -- scanning for in-range and buffs
 			local classExpire, specialExpire, nhave, nneed, nspecial
-			classExpire, classDuration, specialExpire, specialDuration, nhave, nneed, nspecial = self:UpdateButton(cButton, "PallyPowerC"..cbNum, classIndex)
+			classExpire, classDuration, specialExpire, specialDuration, nhave, nneed, nspecial = self:UpdateButton(cButton, "PallyPowerC"..cbNum, classToken)
 			minClassExpire = min(minClassExpire, classExpire)
 			minSpecialExpire = min(minSpecialExpire, specialExpire)
 			minClassDuration = min(minClassDuration, classDuration)
@@ -2515,9 +2670,11 @@ function PallyPower:ButtonsUpdate()
 			local pButtons = self.playerButtons[cbNum]
 			for pbNum = 1, PALLYPOWER_MAXPERCLASS do
 				local pButton = pButtons[pbNum]
-				local playerIndex = pButton:GetAttribute("playerID")
-				if playerIndex > 0 then
-					self:UpdatePButton(pButton, "PallyPowerC".. cbNum .."P".. pbNum, classIndex, playerIndex)
+				if pButton then
+					local playerIndex = pButton:GetAttribute("playerID")
+					if playerIndex > 0 then
+						self:UpdatePButton(pButton, "PallyPowerC".. cbNum .."P".. pbNum, classToken, playerIndex)
+					end
 				end
 			end -- by pbnum
 		end -- class has players
@@ -2585,16 +2742,17 @@ function PallyPower:UpdateAnchor(displayedButtons)
 	end
 end
 
-function PallyPower:NormalBlessingCount(classID)
+function PallyPower:NormalBlessingCount(classToken)
 	local nbcount = 0
-	if classlist[classID] then
-		for pbNum = 1, math.min(classlist[classID], PALLYPOWER_MAXPERCLASS) do
-			local unit  = self:GetUnit(classID, pbNum)
+	if classlist[classToken] then
+		local maxButtons = math.min(classlist[classToken], self:GetClassMaxButtons(classToken), PALLYPOWER_MAXPERCLASS)
+		for pbNum = 1, maxButtons do
+			local unit  = self:GetUnit(classToken, pbNum)
 
 			if unit and unit.name and
 			PallyPower_NormalAssignments[self.player] and
-			PallyPower_NormalAssignments[self.player][classID] and
-			PallyPower_NormalAssignments[self.player][classID][unit.name] then
+			PallyPower_NormalAssignments[self.player][classToken] and
+			PallyPower_NormalAssignments[self.player][classToken][unit.name] then
 				nbcount = nbcount+1
 			end
 		end -- by pbnum
@@ -2602,17 +2760,17 @@ function PallyPower:NormalBlessingCount(classID)
 	return nbcount
 end
 
-function PallyPower:GetSpellID(classID, playerName)
+function PallyPower:GetSpellID(classToken, playerName)
 	local normal = 0
 	local greater = 0
 	if playerName and
 	   PallyPower_NormalAssignments[self.player] and 
-	   PallyPower_NormalAssignments[self.player][classID] and
-	   PallyPower_NormalAssignments[self.player][classID][playerName] then
-		normal = PallyPower_NormalAssignments[self.player][classID][playerName]
+	   PallyPower_NormalAssignments[self.player][classToken] and
+	   PallyPower_NormalAssignments[self.player][classToken][playerName] then
+		normal = PallyPower_NormalAssignments[self.player][classToken][playerName]
 	end
-	if PallyPower_Assignments[self.player] and PallyPower_Assignments[self.player][classID] then
-		greater = PallyPower_Assignments[self.player][classID]
+	if PallyPower_Assignments[self.player] and PallyPower_Assignments[self.player][classToken] then
+		greater = PallyPower_Assignments[self.player][classToken]
 	end
 	if normal == 0 then 
 		normal = greater
@@ -2620,19 +2778,19 @@ function PallyPower:GetSpellID(classID, playerName)
 	return normal, greater
 end
 
-function PallyPower:GetSpellName(classID, playerName, spellID)
+function PallyPower:GetSpellName(classToken, playerName, spellID)
 	local spells, gspells = self:GetSpellTables(self.player)
 	local normal = spellID or 0
 	local greater = spellID or 0
 	
 	if playerName and
 	   PallyPower_NormalAssignments[self.player] and 
-	   PallyPower_NormalAssignments[self.player][classID] and
-	   PallyPower_NormalAssignments[self.player][classID][playerName] then
-		normal = PallyPower_NormalAssignments[self.player][classID][playerName]
+	   PallyPower_NormalAssignments[self.player][classToken] and
+	   PallyPower_NormalAssignments[self.player][classToken][playerName] then
+		normal = PallyPower_NormalAssignments[self.player][classToken][playerName]
 	end
-	if PallyPower_Assignments[self.player] and PallyPower_Assignments[self.player][classID] then
-		greater = PallyPower_Assignments[self.player][classID]
+	if PallyPower_Assignments[self.player] and PallyPower_Assignments[self.player][classToken] then
+		greater = PallyPower_Assignments[self.player][classToken]
 	end
 	if normal == 0 then 
 		normal = greater
@@ -2641,22 +2799,23 @@ function PallyPower:GetSpellName(classID, playerName, spellID)
 	return spells[normal], gspells[greater]
 end
 
-function PallyPower:GetUnit(classID, playerID)
-	return classes[classID][playerID]
+function PallyPower:GetUnit(classToken, playerID)
+	local class = classes[classToken] or {}
+	return class and class[playerID]
 end
 
-function PallyPower:GetUnitAndSpellSmart(classID, mousebutton)
+function PallyPower:GetUnitAndSpellSmart(classToken, mousebutton)
 	local i, unit
-	local class = classes[classID]
+	local class = classes[classToken]
 	local spells, gspells = self:GetSpellTables(self.player)
     
- 	local spellID, gspellID = PallyPower:GetSpellID(classID)
+ 	local spellID, gspellID = PallyPower:GetSpellID(classToken)
 	local spell, gspell    
 	if (mousebutton == "LeftButton") then
 		gspell = gspells[gspellID]
 		for i, unit in pairs(class) do
 			if IsSpellInRange(gspell, unit.unitid) == 1 then
-				spellID, gspellID = PallyPower:GetSpellID(classID, unit.name)
+				spellID, gspellID = PallyPower:GetSpellID(classToken, unit.name)
 				spell = spells[spellID]
 				gspell = gspells[gspellID]
 				return unit.unitid, spell, gspell
@@ -2664,7 +2823,7 @@ function PallyPower:GetUnitAndSpellSmart(classID, mousebutton)
 		end
 	elseif (mousebutton == "RightButton") then
 		for i, unit in pairs(class) do
-			spellID, gspellID = PallyPower:GetSpellID(classID, unit.name)
+			spellID, gspellID = PallyPower:GetSpellID(classToken, unit.name)
 		 	spell = spells[spellID]
 			spell2 = gspells[spellID]
 			gspell = gspells[gspellID]
@@ -2695,9 +2854,9 @@ end
 function PallyPower:ButtonPreClick(button, mousebutton)
 	if (not InCombatLockdown()) then
 		--local button = this
-		local classID = button:GetAttribute("classID")
-		local unitid, spell, gspell = PallyPower:GetUnitAndSpellSmart(classID, mousebutton)
-		--local spell = PallyPower:GetSpellName(classID)
+		local classToken = button:GetAttribute("classToken")
+		local unitid, spell, gspell = PallyPower:GetUnitAndSpellSmart(classToken, mousebutton)
+		--local spell = PallyPower:GetSpellName(classToken)
 		--local gspell = L["SPELL_GTPREF"] .. spell .. L["SPELL_GTSUFF"]
 		if not unitid then
 			spell = "qq"
@@ -2776,12 +2935,13 @@ function PallyPower:AutoBuff(mousebutton)
 			end
 		end
 		local minExpire, minUnit, minSpell, maxSpell = 9999, nil, nil, nil
-		for i = 1, PALLYPOWER_MAXCLASSES do
+		for _, classToken in ipairs(self:GetClassTokens()) do
 			local classMinExpire, classNeedsBuff, classMinUnitPenalty, classMinUnit, classMinSpell, classMaxSpell = 9999, true, 9999, nil, nil, nil
-			for j = 1, PALLYPOWER_MAXPERCLASS do
-				if (classes[i] and classes[i][j]) then
-					local unit = classes[i][j]
-					local spellid, gspellid = self:GetSpellID(i, unit.name)
+			local maxButtons = math.min(self:GetClassMaxButtons(classToken), PALLYPOWER_MAXPERCLASS)
+			for j = 1, maxButtons do
+				if (classes[classToken] and classes[classToken][j]) then
+					local unit = classes[classToken][j]
+					local spellid, gspellid = self:GetSpellID(classToken, unit.name)
 					local spells, gspells = self:GetSpellTables(self.player)
 					local spell = spells[spellid]
 					local spell2 = gspells[spellid]
@@ -2835,7 +2995,7 @@ function PallyPower:AutoBuff(mousebutton)
 		local minExpire, minUnit, minSpell = 9999, nil, nil
 		--for unit in RL:IterateRoster(true) do
 		for _, unit in ipairs(roster) do
-			local spellID, gspellID = self:GetSpellID(self:GetClassID(unit.class), unit.name)
+			local spellID, gspellID = self:GetSpellID(unit.class, unit.name)
 			local spells, gspells = self:GetSpellTables(self.player)
 			local spell = spells[spellID]
 			local spell2 = gspells[spellID]
@@ -2885,11 +3045,11 @@ function PallyPower:SavePreset(preset)
 		self:Print("  Paladin: " .. name)
 		PallyPower_SavedPresets[preset][name] = {}
 	    local i
-	    for i = 1, PALLYPOWER_MAXCLASSES do
- 	        if not PallyPower_Assignments[name][i] then
-	            PallyPower_SavedPresets[preset][name][i] = 0
+	    for _, classToken in ipairs(self:GetClassTokens()) do
+ 	        if not PallyPower_Assignments[name][classToken] then
+	            PallyPower_SavedPresets[preset][name][classToken] = 0
 		 	else
-		 	    PallyPower_SavedPresets[preset][name][i] = PallyPower_Assignments[name][i]
+		 	    PallyPower_SavedPresets[preset][name][classToken] = PallyPower_Assignments[name][classToken]
 			end
 	    end
 	end
@@ -2904,10 +3064,15 @@ function PallyPower:LoadPreset(preset)
 		for name in pairs(PallyPower_SavedPresets[preset]) do
 			if not PallyPower_Assignments[name] then PallyPower_Assignments[name] = {} end
 			self:Print("       Paladin: " .. name)
-			local i
-			for i = 1, PALLYPOWER_MAXCLASSES do
-				PallyPower_Assignments[name][i] = PallyPower_SavedPresets[preset][name][i]
-				PallyPower:SendMessage("ASSIGN "..name.." "..i.." "..PallyPower_SavedPresets[preset][name][i]) 
+			local presetAssignments = PallyPower_SavedPresets[preset][name]
+			for index, classToken in ipairs(self:GetClassTokens()) do
+				local value = presetAssignments[classToken]
+				if value == nil then
+					value = presetAssignments[index]
+				end
+				if value == nil then value = 0 end
+				PallyPower_Assignments[name][classToken] = value
+				PallyPower:SendMessage("ASSIGN "..name.." "..classToken.." "..value) 
 			end 
 		end
 		self:Print("Done.")
@@ -2936,18 +3101,22 @@ function PallyPower:ApplySkin(skinname)
 		                  edgeFile= edge,
 						  tile=false, tileSize = 8, edgeSize = 8,
 						  insets = { left = 0, right = 0, top = 0, bottom = 0}});
-	for i = 1, PALLYPOWER_MAXCLASSES do
+	for i = 1, #PallyPower.classButtons do
 		local cBtn = PallyPower.classButtons[i]
-		cBtn:SetBackdrop({bgFile = PallyPower.Skins[skinname],
-		                  edgeFile= edge,
-						  tile=false, tileSize = 8, edgeSize = 8,
-						  insets = { left = 0, right = 0, top = 0, bottom = 0}});
+		if cBtn then
+			cBtn:SetBackdrop({bgFile = PallyPower.Skins[skinname],
+			                  edgeFile= edge,
+							  tile=false, tileSize = 8, edgeSize = 8,
+							  insets = { left = 0, right = 0, top = 0, bottom = 0}});
+		end
 		for j = 1, PALLYPOWER_MAXPERCLASS do
-			local pBtn = PallyPower.playerButtons[i][j]
-			pBtn:SetBackdrop({bgFile = PallyPower.Skins[skinname],
-		                  edgeFile= edge,
-						  tile=false, tileSize = 8, edgeSize = 8,
-						  insets = { left = 0, right = 0, top = 0, bottom = 0}});
+			local pBtn = PallyPower.playerButtons[i] and PallyPower.playerButtons[i][j]
+			if pBtn then
+				pBtn:SetBackdrop({bgFile = PallyPower.Skins[skinname],
+			                  edgeFile= edge,
+							  tile=false, tileSize = 8, edgeSize = 8,
+							  insets = { left = 0, right = 0, top = 0, bottom = 0}});
+			end
 		end
     end
 end

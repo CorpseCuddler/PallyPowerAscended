@@ -6,7 +6,6 @@ local function InitValues()
 
 PallyPower.commPrefix = "PLPWR";
 
-PALLYPOWER_MAXCLASSES = 11;
 PALLYPOWER_MAXPERCLASS = 8;
 PALLYPOWER_NORMALBLESSINGDURATION = 10*60;
 PALLYPOWER_GREATERBLESSINGDURATION = 30*60;
@@ -93,45 +92,6 @@ PallyPower_Credits1 = "Pally Power - by Aznamir, Phill Warmane";
 --PallyPower_Credits2 = "Version "..PallyPower_Version;
 
 PallyPower.BuffBarTitle = "Pally Buffs (%d)";
-
-PallyPower.ClassID = { 
-	[1] = "WARRIOR",
-	[2] = "ROGUE",
-	[3] = "PRIEST",
-	[4] = "DRUID",
-	[5] = "PALADIN",
-	[6] = "HUNTER",
-	[7] = "MAGE",
-	[8] = "WARLOCK",
-	[9] = "SHAMAN",
-	[10] = "DEATHKNIGHT",
-	[11] = "PET"};
-	
-PallyPower.ClassToID = {
-	["WARRIOR"] 	= 1,
-	["ROGUE"] 		= 2,
-	["PRIEST"] 		= 3,
-	["DRUID"] 		= 4,
-	["PALADIN"] 	= 5,
-	["HUNTER"] 		= 6,
-	["MAGE"] 		= 7,
-	["WARLOCK"]		= 8,
-	["SHAMAN"]		= 9,
-	["DEATHKNIGHT"]	= 10,
-	["PET"]			= 11};	
-
-PallyPower.ClassIcons = {
-	[1] = "Interface\\AddOns\\PallyPower\\Icons\\Warrior",
-	[2] = "Interface\\AddOns\\PallyPower\\Icons\\Rogue",
-	[3] = "Interface\\AddOns\\PallyPower\\Icons\\Priest",
-	[4] = "Interface\\AddOns\\PallyPower\\Icons\\Druid",
-	[5] = "Interface\\AddOns\\PallyPower\\Icons\\Paladin",
-	[6] = "Interface\\AddOns\\PallyPower\\Icons\\Hunter",
-	[7] = "Interface\\AddOns\\PallyPower\\Icons\\Mage",
-	[8] = "Interface\\AddOns\\PallyPower\\Icons\\Warlock",
-	[9] = "Interface\\AddOns\\PallyPower\\Icons\\Shaman",
-	[10] = "Interface\\AddOns\\PallyPower\\Icons\\DeathKnight",
-	[11] = "Interface\\AddOns\\PallyPower\\Icons\\Pet"};
 
 PallyPower.BlessingIcons = {
     [-1] = "",
