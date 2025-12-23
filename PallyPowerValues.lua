@@ -33,6 +33,7 @@ PALLYPOWER_DEFAULT_VALUES = {
 	rfbuff = true,
 	auras = true,
 	extras = false,
+	enableNonPaladin = false,
 	autobuff = {
 		autokey1 = ",",
 		autokey2 = "CTRL-,",

@@ -294,6 +294,9 @@ function PallyPower:OnInitialize()
 	self:RegisterDefaults("profile", PALLYPOWER_DEFAULT_VALUES)
 	self.player = UnitName("player")
 	self.opt = self.db.profile
+	if self.opt.enableNonPaladin == nil then
+		self.opt.enableNonPaladin = false
+	end
 	self:ScanInventory()
 	self:CreateLayout()
 	if self.opt.skin then
@@ -310,6 +313,9 @@ end
 
 function PallyPower:OnProfileEnable()
     self.opt = self.db.profile
+	if self.opt.enableNonPaladin == nil then
+		self.opt.enableNonPaladin = false
+	end
 	PallyPower:UpdateLayout()
 	--PallyPower:RFAssign(self.opt.rf)
 	--PallyPower:SealAssign(self.opt.seal)
@@ -1205,6 +1211,10 @@ function PallyPower:GetBlessingIcons(name)
 end
 
 function PallyPower:IsBuffingClass()
+	local profile = self.opt or (self.db and self.db.profile)
+	if profile and profile.enableNonPaladin then
+		return true
+	end
 	local _, class = UnitClass("player")
 	return (class == "PALADIN" or class == "DRUID")
 end
@@ -1392,9 +1402,7 @@ function PallyPower:CHAT_MSG_SYSTEM()
 end
 
 function PallyPower:PLAYER_REGEN_ENABLED()
-	if PP_IsPally or self.db.profile.enableNonPaladin then
-		self:UpdateLayout()
-	end
+	if self:IsBuffingClass() then self:UpdateLayout() end
 end
 
 function PallyPower:CanControl(name)
