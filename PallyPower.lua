@@ -959,6 +959,37 @@ function PallyPower:EnsureConfigClassGroups(classCount)
 	end
 end
 
+function PallyPower:EnsureConfigPlayerClassButtons(playerFrame, classCount)
+	if not playerFrame then return end
+
+	local parentName = playerFrame:GetName()
+	local auraButton = _G[parentName.."Aura1"]
+	if not auraButton then return end
+
+	for i = 1, classCount do
+		local buttonName = parentName.."Class"..i
+		local button = _G[buttonName]
+		if not button then
+			button = CreateFrame("Button", buttonName, playerFrame, "BuffGridButtonTemplate")
+			if i == 1 then
+				button:SetPoint("TOPLEFT", auraButton, "TOPRIGHT", 2, 0)
+			else
+				local previous = _G[parentName.."Class"..(i - 1)]
+				button:SetPoint("TOPLEFT", previous, "TOPRIGHT", 2, 0)
+			end
+		end
+		button:Show()
+	end
+
+	local extraIndex = classCount + 1
+	while true do
+		local extraButton = _G[parentName.."Class"..extraIndex]
+		if not extraButton then break end
+		extraButton:Hide()
+		extraIndex = extraIndex + 1
+	end
+end
+
 function PallyPowerConfigGrid_Update()
 	if not initalized then PallyPower:ScanSpells() end
 	if PallyPowerConfigFrame:IsVisible() then
@@ -967,6 +998,12 @@ function PallyPowerConfigGrid_Update()
 		local numMaxClass = 0
 		local name, skills
 		local classTokens = PallyPower:GetClassTokens()
+		for index = 1, PALLYPOWER_MAXPERCLASS do
+			local playerFrame = _G["PallyPowerConfigFramePlayer"..index]
+			if playerFrame then
+				PallyPower:EnsureConfigPlayerClassButtons(playerFrame, #classTokens)
+			end
+		end
 		PallyPower:EnsureConfigClassGroups(#classTokens)
 		for i, classToken in ipairs(classTokens) do
 			local fname = "PallyPowerConfigFrameClassGroup"..i
@@ -2298,6 +2335,15 @@ function PallyPower:CreateLayout()
 	self.classButtons = {}
 	self.playerButtons = {}
 	self:EnsureClassButtons()
+	for cbNum, classToken in ipairs(self:GetClassTokens()) do
+		local cButton = self.classButtons[cbNum]
+		if cButton then
+			local normalKey, groupKey = self:GetSpellID(classToken)
+			cButton:SetAttribute("classToken", classToken)
+			cButton:SetAttribute("buffKey", groupKey)
+			cButton:SetAttribute("normalBuffKey", normalKey)
+		end
+	end
 
 	self:UpdateLayout()
 	self:Debug("Create Layout -- end")
@@ -2364,6 +2410,10 @@ function PallyPower:UpdateLayout()
 			local cButton = self.classButtons[cbNum]
 			-- set visual attributes
 			self:SetButton("PallyPowerC" .. cbNum)
+			local normalKey, groupKey = self:GetSpellID(classToken)
+			cButton:SetAttribute("classToken", classToken)
+			cButton:SetAttribute("buffKey", groupKey)
+			cButton:SetAttribute("normalBuffKey", normalKey)
 			-- set position
 			cButton.x = (math.fmod(cbNum - 1, columns) * x + centerShiftX)
 			cButton.y = math.floor((cbNum - 1) / columns) * y + centerShiftY
@@ -2482,6 +2532,10 @@ function PallyPower:UpdateLayout()
 			local cButton = self.classButtons[cbNum]
 			-- set visual attributes
 			self:SetButton("PallyPowerC" .. cbNum)
+			local normalKey, groupKey = self:GetSpellID(classToken)
+			cButton:SetAttribute("classToken", classToken)
+			cButton:SetAttribute("buffKey", groupKey)
+			cButton:SetAttribute("normalBuffKey", normalKey)
 			-- set position
 			cButton.x = cx * x
 			cButton.y = cy * y
@@ -2578,6 +2632,7 @@ function PallyPower:UpdateLayout()
 
             cButton:SetAttribute("Display", 1)
             cButton:SetAttribute("classToken", classToken)
+            cButton:SetAttribute("buffKey", gspellID)
             cButton:SetAttribute("type1", "spell")
             cButton:SetAttribute("type2", "spell")
         end
@@ -2588,10 +2643,17 @@ function PallyPower:UpdateLayout()
             for pbNum = 1, maxButtons do
                 local pButton = pButtons[pbNum]
                 if not pButton then break end
+				local unit = classes[classToken] and classes[classToken][pbNum]
+				local spellID, groupID = 0, 0
+				if unit and unit.name then
+					spellID, groupID = self:GetSpellID(classToken, unit.name)
+				end
 
                 pButton:SetAttribute("Display", self.opt.display.hidePlayerButtons and 0 or 1)
                 pButton:SetAttribute("classToken", classToken)
                 pButton:SetAttribute("playerID", pbNum)
+				pButton:SetAttribute("buffKey", spellID)
+				pButton:SetAttribute("groupBuffKey", groupID)
             end
 
             for pbNum = maxButtons + 1, PALLYPOWER_MAXPERCLASS do
@@ -2601,6 +2663,8 @@ function PallyPower:UpdateLayout()
                 pButton:SetAttribute("Display", 0)
                 pButton:SetAttribute("classToken", nil)
                 pButton:SetAttribute("playerID", 0)
+				pButton:SetAttribute("buffKey", 0)
+				pButton:SetAttribute("groupBuffKey", 0)
             end
         end
     end
@@ -2612,6 +2676,7 @@ end
 		if cButton then
 			cButton:SetAttribute("Display", 0)
 			cButton:SetAttribute("classToken", nil)
+			cButton:SetAttribute("buffKey", 0)
 			cButton:Hide()
 		end
 		local pButtons = self.playerButtons[i]
@@ -2622,6 +2687,8 @@ end
 					pButton:SetAttribute("Display", 0)
 					pButton:SetAttribute("classToken", nil)
 					pButton:SetAttribute("playerID", 0)
+					pButton:SetAttribute("buffKey", 0)
+					pButton:SetAttribute("groupBuffKey", 0)
 					pButton:Hide()
 				end
 			end
@@ -2691,7 +2758,12 @@ end
 
 function PallyPower:UpdateButton(button, baseName, classToken)
 --    self:Print("Update Button: %s, Class: %s", baseName, classToken)
-	local button = _G[baseName]
+	local button = button or _G[baseName]
+	if not button then return 9999, 9999, 9999, 9999, 0, 0, 0 end
+	baseName = baseName or button:GetName()
+	classToken = classToken or button:GetAttribute("classToken")
+	if not classToken then return 9999, 9999, 9999, 9999, 0, 0, 0 end
+
 	local classIcon = _G[baseName.."ClassIcon"]
 	local buffIcon = _G[baseName.."BuffIcon"]
 	local time = _G[baseName.."Time"]
@@ -2725,8 +2797,10 @@ function PallyPower:UpdateButton(button, baseName, classToken)
 	end
 	classIcon:SetTexture(self:GetClassIcon(classToken))
 	classIcon:SetVertexColor(1, 1, 1)
-	local _, gspellID = PallyPower:GetSpellID(classToken)
-	buffIcon:SetTexture(self:GetBuffIconForKey(self.player, gspellID, true))
+	local normalKey, groupKey = PallyPower:GetSpellID(classToken)
+	button:SetAttribute("buffKey", groupKey)
+	button:SetAttribute("normalBuffKey", normalKey)
+	buffIcon:SetTexture(self:GetBuffIconForKey(self.player, groupKey, true))
 
 	if InCombatLockdown() then
 		buffIcon:SetVertexColor(0.4, 0.4, 0.4)
@@ -2834,7 +2908,11 @@ end
 
 function PallyPower:UpdatePButton(button, baseName, classToken, playerID)
 	--self:Print("Update PButton: %s, Class: %s, Player: %s", baseName, classToken, playerID)
-	local button = _G[baseName]
+	local button = button or _G[baseName]
+	if not button then return end
+	baseName = baseName or button:GetName()
+	classToken = classToken or button:GetAttribute("classToken")
+	playerID = playerID or button:GetAttribute("playerID")
 	local buffIcon = _G[baseName.."BuffIcon"]
 	local rng  = _G[baseName.."Rng"]
 	local dead = _G[baseName.."Dead"]
@@ -2865,7 +2943,9 @@ function PallyPower:UpdatePButton(button, baseName, classToken, playerID)
 		end
 
 		local spellID, gspellID = self:GetSpellID(classToken, unit.name)
-		buffIcon:SetTexture(self:GetBuffIconForKey(self.player, spellID, true))
+		button:SetAttribute("buffKey", spellID)
+		button:SetAttribute("groupBuffKey", gspellID)
+		buffIcon:SetTexture(self:GetBuffIconForKey(self.player, spellID, false))
 		buffIcon:SetVertexColor(1, 1, 1)
 
 		time:SetText(self:FormatTime(unit.hasbuff))
@@ -2920,6 +3000,8 @@ function PallyPower:UpdatePButton(button, baseName, classToken, playerID)
 		buffIcon:SetAlpha(0)
 		rng:SetAlpha(0)
 		dead:SetAlpha(0)
+		button:SetAttribute("buffKey", 0)
+		button:SetAttribute("groupBuffKey", 0)
 	end
 	--    self:Print("Update PopupButton -- end")
 end
