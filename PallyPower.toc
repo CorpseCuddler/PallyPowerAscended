@@ -7,6 +7,15 @@
 ## OptionalDeps: Ace2
 
 embeds.xml
+locale/enUS.lua
+locale/deDE.lua
+locale/esES.lua
+locale/esMX.lua
+locale/frFR.lua
+locale/koKR.lua
+locale/ruRU.lua
+locale/zhCN.lua
+locale/zhTW.lua
 PallyPower.lua
 PallyPowerValues.lua
 PallyPowerOptions.lua
