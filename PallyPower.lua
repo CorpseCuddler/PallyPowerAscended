@@ -1963,19 +1963,20 @@ function PallyPower:UpdateLayout()
 										cButton.x + (buttonWidth + gapping),
 										cButton.y + (pbNum - 1) * (buttonHeight + gapping)
 									)
-				elseif (self.opt.display.alignPlayerButtons ~= "compact-left") then
-					pButton:SetPoint(	point, self.Header, "CENTER",
-										cButton.x - (buttonWidth + gapping),
-										cButton.y + (pbNum - 1) * (buttonHeight + gapping)
-									)
+					elseif (self.opt.display.alignPlayerButtons ~= "compact-left") then
+						pButton:SetPoint(	point, self.Header, "CENTER",
+											cButton.x - (buttonWidth + gapping),
+											cButton.y + (pbNum - 1) * (buttonHeight + gapping)
+										)
+					end
 				end
 			end
 		end
-	end
-		local offset = 0
-		local autob = self.autoButton
-		autob:ClearAllPoints()
-		autob:SetPoint(pointOpposite, self.Header, "CENTER", 0, offset)
+		end
+			local offset = 0
+			local autob = self.autoButton
+			autob:ClearAllPoints()
+			autob:SetPoint(pointOpposite, self.Header, "CENTER", 0, offset)
 		autob:SetAttribute("type", "spell")
 		if self:GetNumUnits() > 0 and not self.opt.disabled and self:IsBuffingClass() and (self.opt.autobuff.autobutton or self.opt.hideClassButtons) then
 			autob:Show()
@@ -2033,8 +2034,8 @@ function PallyPower:UpdateLayout()
 		end
 		
 		for cbNum = 1, PALLYPOWER_MAXCLASSES do -- position class buttons
-		    cx = layout.c[cbNum].x
-		    cy = layout.c[cbNum].y
+			local cx = layout.c[cbNum].x
+			local cy = layout.c[cbNum].y
 			local cButton = self.classButtons[cbNum]
 			-- set visual attributes
 			self:SetButton("PallyPowerC" .. cbNum)
@@ -2045,16 +2046,18 @@ function PallyPower:UpdateLayout()
 			cButton:SetPoint(point, self.Header, "CENTER", cButton.x, cButton.y)
 
 			local pButtons = self.playerButtons[cbNum]
-			if pButtons then
-				for pbNum = 1, PALLYPOWER_MAXPERCLASS do
-					local pButton = pButtons[pbNum]
-					if pButton then
-						self:SetPButton("PallyPowerC".. cbNum .. "P" .. pbNum)
-						pButton:ClearAllPoints()
-				pButton:SetPoint(	point, self.Header, "CENTER",
-									cButton.x + px * x,
-									cButton.y + py * y
-								)
+				if pButtons then
+					for pbNum = 1, PALLYPOWER_MAXPERCLASS do
+						local pButton = pButtons[pbNum]
+						if pButton then
+							local px = layout.c[cbNum].p[pbNum].x
+							local py = layout.c[cbNum].p[pbNum].y
+							self:SetPButton("PallyPowerC".. cbNum .. "P" .. pbNum)
+							pButton:ClearAllPoints()
+					pButton:SetPoint(	point, self.Header, "CENTER",
+										cButton.x + px * x,
+										cButton.y + py * y
+									)
 			end
 		end
 	end
@@ -2187,16 +2190,20 @@ function PallyPower:SetButton(baseName)
 	local time = _G[baseName.."Time"]
 	local text = _G[baseName.."Text"]
 
-	if (self.opt.display.HideCountText) then
-		text:Hide()
-	else
-		text:Show()
+	if text then
+		if (self.opt.display.HideCountText) then
+			text:Hide()
+		else
+			text:Show()
+		end
 	end
 
-	if (self.opt.display.HideTimerText) then
-		time:Hide()
-	else
-		time:Show()
+	if time then
+		if (self.opt.display.HideTimerText) then
+			time:Hide()
+		else
+			time:Show()
+		end
 	end
 end
 
@@ -2205,22 +2212,28 @@ function PallyPower:SetPButton(baseName)
 	local dead = _G[baseName.."Dead"]
 	local name = _G[baseName.."Name"]
 	
-	if (self.opt.display.HideRngText) then
-		rng:Hide()
-	else
-		rng:Show()
+	if rng then
+		if (self.opt.display.HideRngText) then
+			rng:Hide()
+		else
+			rng:Show()
+		end
 	end
 	
-	if (self.opt.display.HideDeadText) then
-		dead:Hide()
-	else
-		dead:Show()
+	if dead then
+		if (self.opt.display.HideDeadText) then
+			dead:Hide()
+		else
+			dead:Show()
+		end
 	end
 	
-	if (self.opt.display.HideNameText) then
-		name:Hide()
-	else
-		name:Show()
+	if name then
+		if (self.opt.display.HideNameText) then
+			name:Hide()
+		else
+			name:Show()
+		end
 	end
 end
 
