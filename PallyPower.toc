@@ -18,5 +18,6 @@ locale/zhCN.lua
 locale/zhTW.lua
 PallyPower.lua
 PallyPowerValues.lua
+data/ClassRegistry.lua
 PallyPowerOptions.lua
 PallyPower.xml
