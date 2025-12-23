@@ -294,6 +294,9 @@ function PallyPower:OnInitialize()
 	self:RegisterDefaults("profile", PALLYPOWER_DEFAULT_VALUES)
 	self.player = UnitName("player")
 	self.opt = self.db.profile
+	if self.opt.enableNonPaladin == nil then
+		self.opt.enableNonPaladin = false
+	end
 	self:ScanInventory()
 	self:CreateLayout()
 	if self.opt.skin then
@@ -310,6 +313,9 @@ end
 
 function PallyPower:OnProfileEnable()
     self.opt = self.db.profile
+	if self.opt.enableNonPaladin == nil then
+		self.opt.enableNonPaladin = false
+	end
 	PallyPower:UpdateLayout()
 	--PallyPower:RFAssign(self.opt.rf)
 	--PallyPower:SealAssign(self.opt.seal)
@@ -1197,14 +1203,18 @@ function PallyPower:GetBlessingIcons(name)
 	end
 end
 
+function PallyPower:IsNonPaladinEnabled()
+	return self.db and self.db.profile and self.db.profile.enableNonPaladin
+end
+
 function PallyPower:IsBuffingClass()
 	local _, class = UnitClass("player")
-	return (class == "PALADIN" or class == "DRUID")
+	return (class == "PALADIN" or class == "DRUID" or self:IsNonPaladinEnabled())
 end
 
 function PallyPower:ScanInventory()
 	self:Debug("Scan Inventory -- begin")
-	if not PP_IsPally then return end
+	if not self:IsBuffingClass() then return end
 
 	PP_Symbols = GetItemCount(21177)
 	AllPallys[self.player].symbols = PP_Symbols
@@ -1213,7 +1223,7 @@ end
 
 function PallyPower:InventoryScan()
 	self:ScanInventory()
-	if self:GetNumUnits() > 0 and PP_IsPally then
+	if self:GetNumUnits() > 0 and self:IsBuffingClass() then
 		self:SendMessage("SYMCOUNT " .. PP_Symbols)
 	end
 end
@@ -1385,7 +1395,7 @@ function PallyPower:CHAT_MSG_SYSTEM()
 end
 
 function PallyPower:PLAYER_REGEN_ENABLED()
-	if PP_IsPally then self:UpdateLayout() end
+	if self:IsBuffingClass() then self:UpdateLayout() end
 end
 
 function PallyPower:CanControl(name)
