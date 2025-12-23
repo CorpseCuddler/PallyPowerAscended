@@ -57,7 +57,21 @@ PP.BuffFamilies = PP.BuffFamilies or {}
 PP.BuffRegistry = PP.BuffRegistry or {}
 PP.BuffListCache = PP.BuffListCache or {}
 PP.GroupSpellLookup = PP.GroupSpellLookup or {}
+PP.BuffKeyLookup = PP.BuffKeyLookup or {}
+PP.BuffKeyByName = PP.BuffKeyByName or {}
 PP.BuffRegistryDirty = true
+
+local function NormalizeTokenSet(tokens)
+    if not tokens then return nil end
+    if tokens[1] ~= nil then
+        local set = {}
+        for _, token in ipairs(tokens) do
+            set[token] = true
+        end
+        return set
+    end
+    return tokens
+end
 
 function PP:RegisterBuffFamily(familyId, data)
     if not familyId or familyId == "" then return end
@@ -73,6 +87,8 @@ function PP:RegisterBuffFamily(familyId, data)
                 family.classes[classToken] = true
             end
         end
+        family.targetAllow = NormalizeTokenSet(data.targetAllow) or family.targetAllow
+        family.targetDeny = NormalizeTokenSet(data.targetDeny) or family.targetDeny
     end
     family.buffs = family.buffs or {}
     self.BuffRegistryDirty = true
@@ -103,6 +119,9 @@ function PP:RegisterBuff(spellName, data)
     entry.spellId = data.spellId
     entry.groupSpellId = data.groupSpellId
     entry.talent = data.talent
+    entry.targetAllow = NormalizeTokenSet(data.targetAllow)
+    entry.targetDeny = NormalizeTokenSet(data.targetDeny)
+    entry.key = data.key or data.spellId or spellName
     if data.order then
         entry.order = data.order
         family.buffs[data.order] = spellName
@@ -111,6 +130,10 @@ function PP:RegisterBuff(spellName, data)
         entry.order = #family.buffs
     end
     self.BuffRegistry[spellName] = entry
+    if entry.key ~= nil then
+        self.BuffKeyLookup[entry.key] = spellName
+        self.BuffKeyByName[spellName] = entry.key
+    end
     if data.groupSpell then
         self.GroupSpellLookup[data.groupSpell] = spellName
     end
@@ -206,6 +229,69 @@ function PP:GetBuffListForPlayer(name)
     return self:GetBuffListForClass(classToken)
 end
 
+function PP:GetKnownBuffListForPlayer(name)
+    local list = self:GetBuffListForPlayer(name)
+    local known = {}
+    if name == self.player then
+        for _, buffName in ipairs(list) do
+            if self.PlayerBuffs[buffName] then
+                known[#known + 1] = buffName
+            end
+        end
+        return known
+    end
+    if AllPallys[name] and AllPallys[name].buffs then
+        for _, buffName in ipairs(list) do
+            local info = AllPallys[name].buffs[buffName]
+            if info and (info.known or (info.rank and info.rank > 0)) then
+                known[#known + 1] = buffName
+            end
+        end
+        return known
+    end
+    return list
+end
+
+function PP:GetBuffKey(buffName)
+    local data = self.BuffRegistry[buffName]
+    return data and data.key
+end
+
+function PP:GetBuffNameByKey(key)
+    return self.BuffKeyLookup[key]
+end
+
+function PP:NormalizeBuffKey(casterName, value)
+    if value == nil or value == 0 then
+        return 0
+    end
+    if self.BuffKeyLookup[value] then
+        return value
+    end
+    local numericValue = tonumber(value)
+    if not numericValue then
+        return value
+    end
+    if self.BuffKeyLookup[numericValue] then
+        return numericValue
+    end
+    local classToken = self:GetPlayerClass(casterName) or "PALADIN"
+    local buffName = self:GetBuffNameByIndexForClass(classToken, numericValue)
+    return self:GetBuffKey(buffName) or numericValue
+end
+
+function PP:GetBuffKeysForPlayer(name)
+    local list = self:GetKnownBuffListForPlayer(name)
+    local keys = {}
+    for _, buffName in ipairs(list) do
+        local key = self:GetBuffKey(buffName)
+        if key ~= nil then
+            keys[#keys + 1] = key
+        end
+    end
+    return keys
+end
+
 function PP:GetBuffCountForClass(classToken)
     local list = self:GetBuffListForClass(classToken)
     return #list + 1
@@ -228,8 +314,9 @@ function PP:GetBuffNameByIndexForPlayer(name, index)
     return self:GetBuffNameByIndexForClass(classToken, index)
 end
 
-function PP:GetBuffIconForIndex(casterName, index, useGroup)
-    local buffName = self:GetBuffNameByIndexForPlayer(casterName, index)
+function PP:GetBuffIconForKey(casterName, key, useGroup)
+    if not key or key == 0 then return nil end
+    local buffName = self:GetBuffNameByKey(key)
     if not buffName then return nil end
     local data = self.BuffRegistry[buffName]
     if useGroup and data and data.groupIcon then
@@ -238,14 +325,34 @@ function PP:GetBuffIconForIndex(casterName, index, useGroup)
     return data and data.icon
 end
 
-function PP:GetBuffSpellForIndex(casterName, index, useGroup)
-    local buffName = self:GetBuffNameByIndexForPlayer(casterName, index)
+function PP:GetBuffSpellForKey(casterName, key, useGroup)
+    if not key or key == 0 then return "" end
+    local buffName = self:GetBuffNameByKey(key)
     if not buffName then return "" end
     local data = self.BuffRegistry[buffName]
     if useGroup and data and data.groupSpell then
         return data.groupSpell
     end
     return buffName
+end
+
+function PP:IsBuffAllowedForTarget(buffName, classToken)
+    if not buffName or not classToken then return true end
+    local data = self.BuffRegistry[buffName]
+    local family = data and self.BuffFamilies[data.family]
+    if family and family.targetAllow and not family.targetAllow[classToken] then
+        return false
+    end
+    if family and family.targetDeny and family.targetDeny[classToken] then
+        return false
+    end
+    if data and data.targetAllow and not data.targetAllow[classToken] then
+        return false
+    end
+    if data and data.targetDeny and data.targetDeny[classToken] then
+        return false
+    end
+    return true
 end
 
 PP.PlayerBuffs = {}
@@ -502,13 +609,15 @@ end
 function PallyPower:NormalizeAssignments()
 	for name, assignments in pairs(PallyPower_Assignments) do
 		for key, value in pairs(assignments) do
+			local targetKey = key
 			if type(key) == "number" then
 				local token = self:GetClassTokenByIndex(key)
 				if token then
-					assignments[token] = value
+					targetKey = token
 				end
 				assignments[key] = nil
 			end
+			assignments[targetKey] = self:NormalizeBuffKey(name, value)
 		end
 	end
 
@@ -521,19 +630,24 @@ function PallyPower:NormalizeAssignments()
 				end
 				classAssignments[classKey] = nil
 			end
+			for tname, value in pairs(tnames) do
+				tnames[tname] = self:NormalizeBuffKey(name, value)
+			end
 		end
 	end
 
 	for _, set in pairs(self.opt.sets or {}) do
 		set.buffs = set.buffs or {}
 		for classKey, value in pairs(set.buffs) do
+			local targetKey = classKey
 			if type(classKey) == "number" then
 				local token = self:GetClassTokenByIndex(classKey)
 				if token then
-					set.buffs[token] = value
+					targetKey = token
 				end
 				set.buffs[classKey] = nil
 			end
+			set.buffs[targetKey] = self:NormalizeBuffKey(self.player, value)
 		end
 	end
 end
@@ -704,11 +818,12 @@ function PallyPowerGrid_NormalBlessingMenu(btn, mouseBtn, pname, class)
 				suf = ""
 			end
 			local blessings = {["0"] = sformat("%s%s%s", pre, "(none)", suf)}
-			for index, blessing in ipairs(PallyPower:GetBuffListForPlayer(pally)) do
-				if PallyPower:CanBuff(pally, index) then
-					--if PallyPower:NeedsBuff(class, index, pname) then
-						blessings[tostring(index)] = sformat("%s%s%s", pre, blessing, suf)
-					--end
+			for _, buffKey in ipairs(PallyPower:GetBuffKeysForPlayer(pally)) do
+				if PallyPower:CanBuff(pally, buffKey) then
+					local buffName = PallyPower:GetBuffNameByKey(buffKey)
+					if buffName then
+						blessings[tostring(buffKey)] = sformat("%s%s%s", pre, buffName, suf)
+					end
 				end
 			end
 			tempoptions.args[pally] = {
@@ -871,7 +986,7 @@ function PallyPowerConfigGrid_Update()
 					local icon
 					if normal == greater and movingPlayerFrame == getglobal(pbnt) then
 						if normal == greater then
-							getglobal(pbnt.."Icon"):SetTexture(PallyPower:GetBuffIconForIndex(PallyPower.player, normal, false))
+							getglobal(pbnt.."Icon"):SetTexture(PallyPower:GetBuffIconForKey(PallyPower.player, normal, false))
 						else
 							--getglobal("PallyPowerConfigFrameClassGroup"..i.."PlayerButton"..j.."Icon"):SetTexture(PallyPower.BlessingIcons[normal])
 							getglobal(pbnt.."Icon"):SetTexture("")
@@ -977,7 +1092,7 @@ function PallyPowerConfigGrid_Update()
 			local classTokens = PallyPower:GetClassTokens()
 			for id, classToken in ipairs(classTokens) do
 				if BuffInfo and BuffInfo[classToken] then
-					getglobal(fname.."Class"..id.."Icon"):SetTexture(PallyPower:GetBuffIconForIndex(name, BuffInfo[classToken], true))
+					getglobal(fname.."Class"..id.."Icon"):SetTexture(PallyPower:GetBuffIconForKey(name, BuffInfo[classToken], true))
 				else
 					getglobal(fname.."Class"..id.."Icon"):SetTexture(nil)
 				end
@@ -1020,27 +1135,27 @@ function PallyPower:Report(type)
 	end
 		if PallyPower:CheckRaidLeader(self.player) then
 			SendChatMessage(PALLYPOWER_ASSIGNMENTS1, type)
-			local list = {}
 			for name in pairs(AllPallys) do
 				local blessings
-				local buffCount = PallyPower:GetBuffCountForPlayer(name)
-				for i = 1, buffCount - 1 do
-					list[i] = 0
+				local list = {}
+				local buffKeys = PallyPower:GetBuffKeysForPlayer(name)
+				for _, key in ipairs(buffKeys) do
+					list[key] = 0
 				end
 				for _, classToken in ipairs(PallyPower:GetClassTokens()) do
 					local bid = PallyPower_Assignments[name][classToken]
 					if bid and bid > 0 then
-						list[bid] = list[bid] + 1
+						list[bid] = (list[bid] or 0) + 1
 					end
 				end
-				for id = 1, buffCount - 1 do
-					if (list[id] > 0) then
+				for _, key in ipairs(buffKeys) do
+					if (list[key] and list[key] > 0) then
 						if (blessings) then
 							blessings = blessings .. ", "
 						else
 							blessings = ""
 						end
-      					local spell = PallyPower:GetBuffNameByIndexForPlayer(name, id)
+      					local spell = PallyPower:GetBuffNameByKey(key) or tostring(key)
 						blessings = blessings .. spell
 					end
 				end
@@ -1063,7 +1178,7 @@ function PallyPower:PerformCycle(name, class, skipzero)
 	class = self:NormalizeClassToken(class)
 	if not class then return end
 	local shift = IsShiftKeyDown()
-	local maxblessings = self:GetBuffCountForPlayer(name)
+	local buffKeys = self:GetBuffKeysForPlayer(name)
 
 	if shift then class = self:GetClassTokenByIndex(4) end
 
@@ -1071,40 +1186,43 @@ function PallyPower:PerformCycle(name, class, skipzero)
 		PallyPower_Assignments[name] = { }
 	end
 
-	if not PallyPower_Assignments[name][class] then
-		local cur = 0
-	else
-		cur = PallyPower_Assignments[name][class]
-	end
-
-	PallyPower_Assignments[name][class] = 0
-
-	for test = cur+1, maxblessings do
-		self:Debug("PerformCycle - test: "..test)
-		if PallyPower:CanBuff(name, test) and (PallyPower:NeedsBuff(class, test) or shift) then
-			cur = test
-			do break end
+	local cur = PallyPower_Assignments[name][class] or 0
+	local startIndex = 0
+	if cur ~= 0 then
+		for index, key in ipairs(buffKeys) do
+			if key == cur then
+				startIndex = index
+				break
+			end
 		end
 	end
 
-	if cur == maxblessings then
-		self:Debug("PerformCycle reset?"..cur)
-		if skipzero then
-			cur = 1
-		else
-			local cur = 0 
+	local nextKey = 0
+	for index = startIndex + 1, #buffKeys do
+		local testKey = buffKeys[index]
+		self:Debug("PerformCycle - test: "..tostring(testKey))
+		if PallyPower:CanBuff(name, testKey) and (PallyPower:NeedsBuff(class, testKey) or shift) then
+			nextKey = testKey
+			break
 		end
 	end
 
-	self:Debug("PerformCycle: "..cur)
+	if nextKey == 0 then
+		self:Debug("PerformCycle reset?"..tostring(nextKey))
+		if skipzero and buffKeys[1] then
+			nextKey = buffKeys[1]
+		end
+	end
+
+	self:Debug("PerformCycle: "..tostring(nextKey))
 	if shift then
 		for _, classToken in ipairs(PallyPower:GetClassTokens()) do
-			PallyPower_Assignments[name][classToken] = cur
+			PallyPower_Assignments[name][classToken] = nextKey
 		end
-		PallyPower:SendMessage("MASSIGN "..name.." "..cur)
+		PallyPower:SendMessage("MASSIGN "..name.." "..nextKey)
 	else
-		PallyPower_Assignments[name][class] = cur
-		PallyPower:SendMessage("ASSIGN "..name.." "..class.." "..cur)
+		PallyPower_Assignments[name][class] = nextKey
+		PallyPower:SendMessage("ASSIGN "..name.." "..class.." "..nextKey)
 	end
 end
 
@@ -1113,7 +1231,7 @@ function PallyPower:PerformCycleBackwards(name, class, skipzero)
 	class = self:NormalizeClassToken(class)
 	if not class then return end
 	local shift = IsShiftKeyDown()
-	local maxblessings = self:GetBuffCountForPlayer(name)
+	local buffKeys = self:GetBuffKeysForPlayer(name)
 
 	if shift then class = self:GetClassTokenByIndex(4) end
 
@@ -1121,30 +1239,38 @@ function PallyPower:PerformCycleBackwards(name, class, skipzero)
 		PallyPower_Assignments[name] = { }
 	end
 
-	if not PallyPower_Assignments[name][class] then
-		cur = maxblessings
-	else
-		cur = PallyPower_Assignments[name][class]
-		if cur == 0 or skipzero and cur == 1 then cur = maxblessings end
+	local cur = PallyPower_Assignments[name][class] or 0
+	local startIndex = #buffKeys + 1
+	if cur ~= 0 then
+		for index, key in ipairs(buffKeys) do
+			if key == cur then
+				startIndex = index
+				break
+			end
+		end
 	end
 
-	PallyPower_Assignments[name][class] = 0
-
-	for test = cur-1, 0, -1 do
-		cur = test
-		if PallyPower:CanBuff(name, test) and (PallyPower:NeedsBuff(class, test) or shift) then
-			do break end
+	local nextKey = 0
+	for index = startIndex - 1, 1, -1 do
+		local testKey = buffKeys[index]
+		if PallyPower:CanBuff(name, testKey) and (PallyPower:NeedsBuff(class, testKey) or shift) then
+			nextKey = testKey
+			break
 		end
+	end
+
+	if nextKey == 0 and skipzero and buffKeys[#buffKeys] then
+		nextKey = buffKeys[#buffKeys]
 	end
 
 	if shift then
 		for _, classToken in ipairs(PallyPower:GetClassTokens()) do
-			PallyPower_Assignments[name][classToken] = cur
+			PallyPower_Assignments[name][classToken] = nextKey
 		end
-		PallyPower:SendMessage("MASSIGN "..name.." "..cur)
+		PallyPower:SendMessage("MASSIGN "..name.." "..nextKey)
 	else
-		PallyPower_Assignments[name][class] = cur
-		PallyPower:SendMessage("ASSIGN "..name.." "..class.." "..cur)
+		PallyPower_Assignments[name][class] = nextKey
+		PallyPower:SendMessage("ASSIGN "..name.." "..class.." "..nextKey)
 	end
 end
 
@@ -1157,17 +1283,33 @@ function PallyPower:PerformPlayerCycle(arg1, pname, class)
 		blessing = PallyPower_NormalAssignments[playername][class][pname]
 	end
 
-	local buffCount = PallyPower:GetBuffCountForPlayer(playername)
-	local test = (blessing - arg1) % buffCount
-	while not (PallyPower:CanBuff(playername, test) and PallyPower:NeedsBuff(class, test, pname)) and test > 0 do
-		test = (test - arg1) % buffCount
-		if test == blessing then
-			test = 0
+	local buffKeys = PallyPower:GetBuffKeysForPlayer(playername)
+	if #buffKeys == 0 then
+		SetNormalBlessings(playername, class, pname, 0)
+		return
+	end
+	local startIndex = 0
+	if blessing ~= 0 then
+		for index, key in ipairs(buffKeys) do
+			if key == blessing then
+				startIndex = index
+				break
+			end
+		end
+	end
+
+	local nextKey = 0
+	local step = arg1
+	for offset = 1, #buffKeys do
+		local index = ((startIndex - 1 + (offset * step)) % #buffKeys) + 1
+		local testKey = buffKeys[index]
+		if PallyPower:CanBuff(playername, testKey) and PallyPower:NeedsBuff(class, testKey, pname) then
+			nextKey = testKey
 			break
 		end
 	end
 
-	SetNormalBlessings(playername, class, pname, test)
+	SetNormalBlessings(playername, class, pname, nextKey)
 end
 
 function PallyPower:AssignPlayerAsClass(pname, pclass, tclass)
@@ -1175,6 +1317,7 @@ function PallyPower:AssignPlayerAsClass(pname, pclass, tclass)
 	tclass = self:NormalizeClassToken(tclass)
 	if not pclass or not tclass then return end
 	local greater, target, targetsorted, freepallies =  {}, {}, {}, {}
+	local blessingKeys = self:GetBlessingKeyMap()
 	-- Find blessings we want
 	for pally, classes in pairs(PallyPower_Assignments) do
 		if AllPallys[pally] and classes[tclass] and classes[tclass] > 0 then
@@ -1183,7 +1326,13 @@ function PallyPower:AssignPlayerAsClass(pname, pclass, tclass)
 		end
 	end
 	-- Sort blessings because we want to look at might > wisdom > the rest
-	tsort(targetsorted, function(a,b) return a == 2 or a == 1 and b == 2 end)
+	tsort(targetsorted, function(a, b)
+		local priority = {
+			[blessingKeys.might] = 1,
+			[blessingKeys.wisdom] = 2,
+		}
+		return (priority[a] or 3) < (priority[b] or 3)
+	end)
 	-- Find greater blessings we have
 	for pally, info in pairs(AllPallys) do
 		if PallyPower_Assignments[pally] and PallyPower_Assignments[pally][pclass] then
@@ -1230,18 +1379,16 @@ function PallyPower:AssignPlayerAsClass(pname, pclass, tclass)
 	end
 end
 
-function PallyPower:CanBuff(name, test)
-	local classToken = self:GetPlayerClass(name)
-	local maxblessings = self:GetBuffCountForClass(classToken)
-	if test == maxblessings then
+function PallyPower:CanBuff(name, buffKey)
+	if not buffKey or buffKey == 0 then
 		return true
 	end
-	local buffName = self:GetBuffNameByIndexForClass(classToken, test)
+	local buffName = self:GetBuffNameByKey(buffKey)
 	if not buffName or not self.BuffRegistry[buffName] then
 		return false
 	end
 	if AllPallys[name] then
-		local info = AllPallys[name].buffs and AllPallys[name].buffs[buffName] or AllPallys[name][test]
+		local info = AllPallys[name].buffs and AllPallys[name].buffs[buffName]
 		if info and info.rank and info.rank > 0 then
 			return true
 		end
@@ -1255,26 +1402,19 @@ function PallyPower:CanBuff(name, test)
 	return false
 end
 
-function PallyPower:NeedsBuff(class, test, playerName)
+function PallyPower:NeedsBuff(class, buffKey, playerName)
 	local classToken = self:NormalizeClassToken(class)
 	if not classToken then
 		return true
 	end
-	local buffCount = self:GetBuffCountForPlayer(self.player)
-	if test==buffCount or test==0 then
+	if not buffKey or buffKey == 0 then
 		return true
 	end
 
 	if self.opt.smartbuffs then
-		local buffName = self:GetBuffNameByIndexForPlayer(self.player, test)
-		if buffName == GetSpellInfo(19742) then -- Blessing of Wisdom
-			if classToken == "WARRIOR" or classToken == "ROGUE" or classToken == "DEATHKNIGHT" then
-				return false
-			end
-		elseif buffName == GetSpellInfo(19740) then -- Blessing of Might
-			if classToken == "PRIEST" or classToken == "MAGE" or classToken == "WARLOCK" then
-				return false
-			end
+		local buffName = self:GetBuffNameByKey(buffKey)
+		if buffName and not self:IsBuffAllowedForTarget(buffName, classToken) then
+			return false
 		end
 	end
 
@@ -1283,7 +1423,7 @@ function PallyPower:NeedsBuff(class, test, playerName)
 			if AllPallys[pname] and not pname == self.player then
 				for class_id, tnames in pairs(classes) do
 					for tname, blessing_id in pairs(tnames) do
-						if blessing_id == test then
+						if blessing_id == buffKey then
 							return false
 						end
 					end
@@ -1293,7 +1433,7 @@ function PallyPower:NeedsBuff(class, test, playerName)
 	end
 
 	for name, skills in pairs(PallyPower_Assignments) do
-		if (AllPallys[name]) and ((skills[classToken]) and (skills[classToken]==test)) then 
+		if (AllPallys[name]) and ((skills[classToken]) and (skills[classToken]==buffKey)) then 
 			return false 
 		end
 	end
@@ -1475,14 +1615,12 @@ function PallyPower:SendSelf()
 	end
 
 	local BuffInfo = PallyPower_Assignments[self.player]
-
+	local assignList = {}
 	for _, classToken in ipairs(self:GetClassTokens()) do
-		if not BuffInfo[classToken] or BuffInfo[classToken] == 0 then
-			s = s .. "n"
-		else
-			s = s .. BuffInfo[classToken]
-		end
+		local buffKey = BuffInfo[classToken] or 0
+		assignList[#assignList + 1] = tostring(buffKey)
 	end
+	s = s .. table.concat(assignList, ",")
 
 	self:SendMessage("SELF " .. s)
 
@@ -1693,7 +1831,7 @@ function PallyPower:ParseMessage(sender, msg)
 		
 		self:SyncAdd(sender)
 		
-		_, _, numbers, assign = sfind(msg, "SELF ([0-9n]*)@([0-9n]*)")
+		_, _, numbers, assign = sfind(msg, "SELF ([0-9n]*)@?(.*)")
 		local total = math.floor(numbers:len() / 2)
 		local senderClass = self:GetPlayerClass(sender) or self:GetRosterClassToken(sender)
 		if senderClass and not AllPallys[sender].class then
@@ -1714,12 +1852,24 @@ function PallyPower:ParseMessage(sender, msg)
 			end
 		end
 		-- sort here
-		if assign then
+		if assign and assign ~= "" then
 			local classTokens = self:GetClassTokens()
-			for i = 1, math.min(#classTokens, assign:len()) do
-				tmp =ssub(assign, i, i)
-				if tmp == "n" or tmp == "" then tmp = 0 end
-				PallyPower_Assignments[sender][classTokens[i]] = tmp + 0
+			if assign:find(",") then
+				local index = 1
+				for value in string.gmatch(assign, "([^,]+)") do
+					local classToken = classTokens[index]
+					if classToken then
+						local numericValue = self:NormalizeBuffKey(sender, tonumber(value) or 0)
+						PallyPower_Assignments[sender][classToken] = numericValue
+					end
+					index = index + 1
+				end
+			else
+				for i = 1, math.min(#classTokens, assign:len()) do
+					tmp = ssub(assign, i, i)
+					if tmp == "n" or tmp == "" then tmp = 0 end
+					PallyPower_Assignments[sender][classTokens[i]] = self:NormalizeBuffKey(sender, tmp + 0)
+				end
 			end
 		end
 	end
@@ -1729,7 +1879,7 @@ function PallyPower:ParseMessage(sender, msg)
 		if name == sender and not (leader or PallyPower.opt.freeassign) then return false end
 		if not PallyPower_Assignments[name] then PallyPower_Assignments[name] = {} end
 		local classToken = self:NormalizeClassToken(tonumber(class) or class)
-		skill = skill + 0
+		skill = self:NormalizeBuffKey(name, skill + 0)
 		if classToken then
 			PallyPower_Assignments[name][classToken] = skill
 		end
@@ -1743,7 +1893,7 @@ function PallyPower:ParseMessage(sender, msg)
 			if classToken and not PallyPower_NormalAssignments[pname][classToken] then
 				PallyPower_NormalAssignments[pname][classToken] = {}
 			end
-			skill = skill + 0
+			skill = self:NormalizeBuffKey(pname, skill + 0)
 			if skill == 0 then skill = nil end
 			if classToken then
 				PallyPower_NormalAssignments[pname][classToken][tname] = skill
@@ -1755,7 +1905,7 @@ function PallyPower:ParseMessage(sender, msg)
 		_, _, name, skill = sfind(msg, "^MASSIGN (.*) (.*)")
 		if name == sender and not (leader or PallyPower.opt.freeassign) then return false end
 		if not PallyPower_Assignments[name] then PallyPower_Assignments[name] = {} end
-		skill = skill + 0
+		skill = self:NormalizeBuffKey(name, skill + 0)
 		for _, classToken in ipairs(self:GetClassTokens()) do
 			PallyPower_Assignments[name][classToken] = skill
 		end
@@ -1980,9 +2130,9 @@ function PallyPower:ScanClass(classToken)
 	for playerID, unit in pairs(class) do
 		if unit.unitid then
 			local spellID, gspellID = self:GetSpellID(classToken, unit.name)
-			local spell = self:GetBuffSpellForIndex(self.player, spellID, false)
-			local spell2 = self:GetBuffSpellForIndex(self.player, spellID, true)
-			local gspell = self:GetBuffSpellForIndex(self.player, gspellID, true)
+			local spell = self:GetBuffSpellForKey(self.player, spellID, false)
+			local spell2 = self:GetBuffSpellForKey(self.player, spellID, true)
+			local gspell = self:GetBuffSpellForKey(self.player, gspellID, true)
 			
 			-- Add safety checks
 			if spell and spell ~= "" then
@@ -2576,7 +2726,7 @@ function PallyPower:UpdateButton(button, baseName, classToken)
 	classIcon:SetTexture(self:GetClassIcon(classToken))
 	classIcon:SetVertexColor(1, 1, 1)
 	local _, gspellID = PallyPower:GetSpellID(classToken)
-	buffIcon:SetTexture(self:GetBuffIconForIndex(self.player, gspellID, true))
+	buffIcon:SetTexture(self:GetBuffIconForKey(self.player, gspellID, true))
 
 	if InCombatLockdown() then
 		buffIcon:SetVertexColor(0.4, 0.4, 0.4)
@@ -2626,8 +2776,8 @@ function PallyPower:GetBuffExpiration(classToken)
 		if unit.unitid then
 			local j = 1
 			local spellID, gspellID = self:GetSpellID(classToken, unit.name)
-			local spell = self:GetBuffSpellForIndex(self.player, spellID, false)
-			local gspell = self:GetBuffSpellForIndex(self.player, gspellID, true)
+			local spell = self:GetBuffSpellForKey(self.player, spellID, false)
+			local gspell = self:GetBuffSpellForKey(self.player, gspellID, true)
 			local buffName, _, _, _, _, buffDuration, buffExpire = UnitBuff(unit.unitid, j)
 			while buffExpire do
 				buffExpire = buffExpire - GetTime()
@@ -2715,14 +2865,14 @@ function PallyPower:UpdatePButton(button, baseName, classToken, playerID)
 		end
 
 		local spellID, gspellID = self:GetSpellID(classToken, unit.name)
-		buffIcon:SetTexture(self:GetBuffIconForIndex(self.player, spellID, true))
+		buffIcon:SetTexture(self:GetBuffIconForKey(self.player, spellID, true))
 		buffIcon:SetVertexColor(1, 1, 1)
 
 		time:SetText(self:FormatTime(unit.hasbuff))
 
 		if (not InCombatLockdown()) then
-			button:SetAttribute("spell1", self:GetBuffSpellForIndex(self.player, gspellID, true))
-			button:SetAttribute("spell2", self:GetBuffSpellForIndex(self.player, spellID, false))
+			button:SetAttribute("spell1", self:GetBuffSpellForKey(self.player, gspellID, true))
+			button:SetAttribute("spell2", self:GetBuffSpellForKey(self.player, spellID, false))
 		end
 
 		if (nspecial == 1) then
@@ -2919,7 +3069,7 @@ function PallyPower:GetSpellName(classToken, playerName, spellID)
 		normal = greater
 	end
 	
-	return self:GetBuffSpellForIndex(self.player, normal, false), self:GetBuffSpellForIndex(self.player, greater, true)
+	return self:GetBuffSpellForKey(self.player, normal, false), self:GetBuffSpellForKey(self.player, greater, true)
 end
 
 function PallyPower:GetUnit(classToken, playerID)
@@ -2934,21 +3084,21 @@ function PallyPower:GetUnitAndSpellSmart(classToken, mousebutton)
  	local spellID, gspellID = PallyPower:GetSpellID(classToken)
 	local spell, gspell    
 	if (mousebutton == "LeftButton") then
-		gspell = self:GetBuffSpellForIndex(self.player, gspellID, true)
+		gspell = self:GetBuffSpellForKey(self.player, gspellID, true)
 		for i, unit in pairs(class) do
 			if IsSpellInRange(gspell, unit.unitid) == 1 then
 				spellID, gspellID = PallyPower:GetSpellID(classToken, unit.name)
-				spell = self:GetBuffSpellForIndex(self.player, spellID, false)
-				gspell = self:GetBuffSpellForIndex(self.player, gspellID, true)
+				spell = self:GetBuffSpellForKey(self.player, spellID, false)
+				gspell = self:GetBuffSpellForKey(self.player, gspellID, true)
 				return unit.unitid, spell, gspell
 			end
 		end
 	elseif (mousebutton == "RightButton") then
 		for i, unit in pairs(class) do
 			spellID, gspellID = PallyPower:GetSpellID(classToken, unit.name)
-		 	spell = self:GetBuffSpellForIndex(self.player, spellID, false)
-			spell2 = self:GetBuffSpellForIndex(self.player, spellID, true)
-			gspell = self:GetBuffSpellForIndex(self.player, gspellID, true)
+		 	spell = self:GetBuffSpellForKey(self.player, spellID, false)
+			spell2 = self:GetBuffSpellForKey(self.player, spellID, true)
+			gspell = self:GetBuffSpellForKey(self.player, gspellID, true)
 			local buffExpire, buffDuration = self:IsBuffActive(spell, spell2, unit.unitid)
 			if (not buffExpire or buffExpire/buffDuration < 0.5) and IsSpellInRange(spell, unit.unitid) == 1 then
 				return unit.unitid, spell, gspell
@@ -3064,9 +3214,9 @@ function PallyPower:AutoBuff(mousebutton)
 				if (classes[classToken] and classes[classToken][j]) then
 					local unit = classes[classToken][j]
 					local spellid, gspellid = self:GetSpellID(classToken, unit.name)
-					local spell = self:GetBuffSpellForIndex(self.player, spellid, false)
-					local spell2 = self:GetBuffSpellForIndex(self.player, spellid, true)
-					local gspell = self:GetBuffSpellForIndex(self.player, gspellid, true)
+					local spell = self:GetBuffSpellForKey(self.player, spellid, false)
+					local spell2 = self:GetBuffSpellForKey(self.player, spellid, true)
+					local gspell = self:GetBuffSpellForKey(self.player, gspellid, true)
 					--self:Print(unit.name .. ": " .. groupCount[select(3, GetRaidRosterInfo(select(3, unit.unitid:find("(%d+)"))))])
 					if (spellid == gspellid and unit.unitid and spell and spell ~= "") then
 						if (IsSpellInRange(spell, unit.unitid) == 1) then
@@ -3117,9 +3267,9 @@ function PallyPower:AutoBuff(mousebutton)
 		--for unit in RL:IterateRoster(true) do
 		for _, unit in ipairs(roster) do
 			local spellID, gspellID = self:GetSpellID(unit.class, unit.name)
-			local spell = self:GetBuffSpellForIndex(self.player, spellID, false)
-			local spell2 = self:GetBuffSpellForIndex(self.player, spellID, true)
-			local gspell = self:GetBuffSpellForIndex(self.player, gspellID, true)
+			local spell = self:GetBuffSpellForKey(self.player, spellID, false)
+			local spell2 = self:GetBuffSpellForKey(self.player, spellID, true)
+			local gspell = self:GetBuffSpellForKey(self.player, gspellID, true)
 			if (spell and spell ~= "" and IsSpellInRange(spell, unit.unitid) == 1) then
 				local penalty = 0
 				if (self.AutoBuffedList[unit.name] and now - self.AutoBuffedList[unit.name] < 20) then
@@ -3191,6 +3341,7 @@ function PallyPower:LoadPreset(preset)
 					value = presetAssignments[index]
 				end
 				if value == nil then value = 0 end
+				value = self:NormalizeBuffKey(name, value)
 				PallyPower_Assignments[name][classToken] = value
 				PallyPower:SendMessage("ASSIGN "..name.." "..classToken.." "..value) 
 			end 
@@ -3323,6 +3474,18 @@ end
 -- Auto-Assign blessings by Maddeathelf
 local WisdomPallys, MightPallys, KingsPallys,  SancPallys = {}, {}, {}, {}
 
+function PallyPower:GetBlessingKeyMap()
+	if not self.BlessingKeyMap then
+		self.BlessingKeyMap = {
+			wisdom = self:GetBuffKey(GetSpellInfo(19742)),
+			might = self:GetBuffKey(GetSpellInfo(19740)),
+			kings = self:GetBuffKey(GetSpellInfo(20217)),
+			sanctuary = self:GetBuffKey(GetSpellInfo(20911)),
+		}
+	end
+	return self.BlessingKeyMap
+end
+
 function PallyPower:AutoAssign()
 
 	PallyPowerConfig_Clear()
@@ -3336,23 +3499,28 @@ end
 
 function PallyPower:CalcSkillRanks1(name)
 	local wisdom, might, kings, sanct
-	if AllPallys[name][1] then
-		wisdom = tonumber(AllPallys[name][1].rank) + tonumber(AllPallys[name][1].talent)/12
+	local buffInfo = AllPallys[name].buffs or {}
+	local wisdomInfo = buffInfo[GetSpellInfo(19742)]
+	local mightInfo = buffInfo[GetSpellInfo(19740)]
+	local kingsInfo = buffInfo[GetSpellInfo(20217)]
+	local sanctInfo = buffInfo[GetSpellInfo(20911)]
+	if wisdomInfo then
+		wisdom = tonumber(wisdomInfo.rank) + tonumber(wisdomInfo.talent)/12
 	else
 		wisdom = 0
 	end
-	if  AllPallys[name][2] then
-		might  = tonumber(AllPallys[name][2].rank) + tonumber(AllPallys[name][2].talent)/10
+	if mightInfo then
+		might  = tonumber(mightInfo.rank) + tonumber(mightInfo.talent)/10
 	else	
 		might = 0
 	end
-	if AllPallys[name][3] then
-		kings  = tonumber(AllPallys[name][3].rank)
+	if kingsInfo then
+		kings  = tonumber(kingsInfo.rank)
 	else
 		kings = 0
 	end
-	if AllPallys[name][4] then
-		sanct  = tonumber(AllPallys[name][4].rank)
+	if sanctInfo then
+		sanct  = tonumber(sanctInfo.rank)
 	else
 		sanct = 0
 	end
@@ -3441,10 +3609,11 @@ end
 function PallyPower:BuffSelections(buff, class, pallys)
 	--self:Print(">>Looking for buffer for: " .. buff)
 	local t = {}
-	if buff == 1 then t = WisdomPallys end
-	if buff == 2 then t = MightPallys end
-	if buff == 3 then t = KingsPallys end
-	if buff == 4 then t = SancPallys end
+	local blessingKeys = self:GetBlessingKeyMap()
+	if buff == blessingKeys.wisdom then t = WisdomPallys end
+	if buff == blessingKeys.might then t = MightPallys end
+	if buff == blessingKeys.kings then t = KingsPallys end
+	if buff == blessingKeys.sanctuary then t = SancPallys end
 
 	local Buffer = ""
 	local testrank = 0
